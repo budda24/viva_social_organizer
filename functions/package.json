@@ -1,0 +1,28 @@
+{
+  "name": "viva-social-organizer-functions",
+  "version": "0.1.0",
+  "description": "Cloud Functions for VivaTech Social Organizer — webhook, outbox, admin, fallback brain",
+  "main": "lib/index.js",
+  "engines": {
+    "node": "20"
+  },
+  "scripts": {
+    "build": "tsc",
+    "build:watch": "tsc --watch",
+    "serve": "npm run build && firebase emulators:start --only functions,firestore,auth",
+    "shell": "npm run build && firebase functions:shell",
+    "deploy": "firebase deploy --only functions",
+    "logs": "firebase functions:log",
+    "lint": "eslint --ext .ts src/"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.30.0",
+    "firebase-admin": "^12.6.0",
+    "firebase-functions": "^6.1.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "typescript": "^5.5.0"
+  },
+  "private": true
+}

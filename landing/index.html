@@ -1,0 +1,148 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>Founders &amp; Builders @ VivaTech 2026</title>
+    <meta name="description" content="A small, hand-picked circle of founders and builders at VivaTech Paris 2026. Invite-only." />
+
+    <!-- Open Graph (LinkedIn / Twitter previews) -->
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Founders & Builders @ VivaTech 2026" />
+    <meta property="og:description" content="A small, hand-picked circle of founders and builders at VivaTech Paris 2026. Invite-only." />
+    <meta property="og:image" content="/og.png" />
+    <meta name="twitter:card" content="summary_large_image" />
+
+    <link rel="icon" href="/favicon.ico" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600&family=Inter:wght@400;500;600&display=swap" rel="stylesheet" />
+
+    <style>
+      :root {
+        --bg: #faf7f2;
+        --ink: #1f1d1a;
+        --accent: #c9522b;
+        --muted: #6e6962;
+      }
+      * { box-sizing: border-box; }
+      html, body { margin: 0; padding: 0; }
+      body {
+        font-family: "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
+        background: var(--bg);
+        color: var(--ink);
+        line-height: 1.55;
+        -webkit-font-smoothing: antialiased;
+      }
+      .wrap {
+        max-width: 720px;
+        margin: 0 auto;
+        padding: 56px 24px 96px;
+      }
+      h1 {
+        font-family: "Fraunces", "Georgia", serif;
+        font-weight: 600;
+        font-size: clamp(36px, 6vw, 56px);
+        line-height: 1.1;
+        letter-spacing: -0.01em;
+        margin: 24px 0 16px;
+      }
+      .lede {
+        font-size: clamp(17px, 2vw, 19px);
+        color: var(--muted);
+        margin: 0 0 32px;
+        max-width: 56ch;
+      }
+      .french {
+        font-style: italic;
+        color: var(--muted);
+        font-family: "Fraunces", serif;
+      }
+      .cta {
+        display: inline-flex;
+        align-items: center;
+        gap: 10px;
+        background: var(--ink);
+        color: var(--bg);
+        padding: 14px 22px;
+        border-radius: 999px;
+        font-size: 16px;
+        font-weight: 500;
+        text-decoration: none;
+        margin: 8px 12px 8px 0;
+        transition: transform 120ms ease;
+      }
+      .cta:hover { transform: translateY(-1px); }
+      .cta.secondary {
+        background: transparent;
+        color: var(--ink);
+        border: 1px solid var(--ink);
+      }
+      .pillars {
+        display: grid;
+        grid-template-columns: 1fr;
+        gap: 24px;
+        margin: 64px 0;
+      }
+      @media (min-width: 640px) {
+        .pillars { grid-template-columns: repeat(3, 1fr); }
+      }
+      .pillar h3 {
+        font-family: "Fraunces", serif;
+        font-weight: 600;
+        font-size: 20px;
+        margin: 0 0 6px;
+      }
+      .pillar p {
+        margin: 0;
+        color: var(--muted);
+        font-size: 15px;
+      }
+      .footer {
+        margin-top: 80px;
+        padding-top: 24px;
+        border-top: 1px solid #e6e1d8;
+        color: var(--muted);
+        font-size: 14px;
+      }
+      .footer a { color: var(--muted); }
+      a { color: var(--accent); }
+    </style>
+  </head>
+  <body>
+    <main class="wrap">
+      <p class="french">Une petite circle of founders à Paris.</p>
+      <h1>Technology evolves fast. Human connection matters even more.</h1>
+      <p class="lede">
+        A small, hand-picked circle of founders and builders at VivaTech 2026.
+        Curated, warm, low-noise. Not a network — a circle.
+      </p>
+
+      <a class="cta" href="/app/?code=">I have an invite code</a>
+      <a class="cta secondary" href="#request">Request consideration</a>
+
+      <section class="pillars">
+        <div class="pillar">
+          <h3>Curated humans</h3>
+          <p>Each member personally invited. Founders, builders, investors, operators. No spam, no recruiters, no gurus.</p>
+        </div>
+        <div class="pillar">
+          <h3>Real Paris moments</h3>
+          <p>Breakfasts. Rooftops. Long dinners. The relationships that the conference floor can't make.</p>
+        </div>
+        <div class="pillar">
+          <h3>WhatsApp-first</h3>
+          <p>Plans happen in WhatsApp where you already are. The web app is the directory and brain. The bot helps you find your people.</p>
+        </div>
+      </section>
+
+      <div class="footer">
+        <p>
+          Hosted by Franek Jablonski. <a href="https://www.linkedin.com/in/franek-jablonski/">LinkedIn</a>.
+          <br />
+          <a href="/code-of-conduct.html">Code of conduct</a> · <a href="/privacy.html">Privacy</a>
+        </p>
+      </div>
+    </main>
+  </body>
+</html>

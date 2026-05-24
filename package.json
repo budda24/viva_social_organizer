@@ -1,0 +1,15 @@
+{
+  "name": "viva-social-organizer-root",
+  "version": "0.1.0",
+  "description": "Root scripts for VivaTech Social Organizer (Flutter Web + Firebase Hosting + Functions).",
+  "private": true,
+  "scripts": {
+    "build:flutter": "flutter build web --release",
+    "build:hosting": "rm -rf dist && mkdir -p dist && cp -r landing/. dist/ && npm run build:flutter && cp -r build/web dist/app",
+    "deploy": "firebase deploy",
+    "deploy:hosting": "firebase deploy --only hosting",
+    "deploy:functions": "firebase deploy --only functions",
+    "deploy:rules": "firebase deploy --only firestore:rules,firestore:indexes",
+    "emulators": "firebase emulators:start"
+  }
+}

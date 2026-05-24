@@ -1,0 +1,81 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isAdmin() {
+      return isSignedIn() && request.auth.token.admin == true;
+    }
+
+    function isMe(uid) {
+      return isSignedIn() && request.auth.uid == uid;
+    }
+
+    function isApproved() {
+      return isSignedIn() &&
+        exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.status == 'approved';
+    }
+
+    // users — approved members can read non-private fields; admin sees everything.
+    // All writes go through Cloud Functions.
+    match /users/{uid} {
+      allow read: if isApproved() || isMe(uid) || isAdmin();
+      allow write: if false;
+
+      // Phone, dietary, notLookingFor — owner + admin only.
+      match /private/{doc} {
+        allow read, write: if isMe(uid) || isAdmin();
+      }
+    }
+
+    // Invite codes — Functions only.
+    match /inviteCodes/{code} {
+      allow read, write: if false;
+    }
+
+    // Events — approved members can read published events whose visibility allows them.
+    match /events/{eventId} {
+      allow read: if isAdmin() ||
+        (isApproved() && resource.data.status == 'published' &&
+          (resource.data.visibility == 'all' ||
+           (resource.data.visibility == 'invited' &&
+            request.auth.uid in resource.data.invitedUids)));
+      allow write: if false;
+
+      match /rsvps/{uid} {
+        allow read: if isAdmin() || isMe(uid) || isApproved();
+        allow write: if false;
+      }
+    }
+
+    // Profile interviews — owner + admin only.
+    match /profileInterviews/{sid} {
+      allow read: if isAdmin() ||
+        (isSignedIn() && resource.data.uid == request.auth.uid);
+      allow write: if false;
+    }
+
+    // Buddy matches — each party can read their own matches.
+    match /buddyMatches/{mid} {
+      allow read: if isAdmin() || (isApproved() &&
+        (request.auth.uid == resource.data.uidA ||
+         request.auth.uid == resource.data.uidB));
+      allow write: if false;
+    }
+
+    // Bot inbox + conversation state + outbox + log — server-only.
+    match /botInbox/{id} { allow read: if isAdmin(); allow write: if false; }
+    match /conversationStates/{id} { allow read: if isAdmin(); allow write: if false; }
+    match /whatsappOutbox/{id} { allow read: if isAdmin(); allow write: if false; }
+    match /whatsappLog/{id} { allow read: if isAdmin(); allow write: if false; }
+
+    // Admin audit + system config.
+    match /admin/{doc=**} { allow read, write: if isAdmin(); }
+    match /system/{doc=**} { allow read: if isAdmin(); allow write: if false; }
+  }
+}
