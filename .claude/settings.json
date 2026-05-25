@@ -10,7 +10,10 @@
       "Bash(echo \"--- OS info ---\"; cat /etc/os-release | head -3; echo \"--- snap/apt ---\"; which snap apt 2>&1; echo \"--- /usr/lib/flutter or similar ---\"; ls -d /usr/lib/flutter /opt/flutter ~/flutter ~/snap/flutter 2>&1 | head -5; echo \"--- nvm ---\"; ls -d ~/.nvm 2>&1; echo \"--- disk free in home ---\"; df -h ~ | tail -1)",
       "Read(//usr/lib/**)",
       "Bash(chmod +x /home/franek/Desktop/repositories/viva_social_organizer/bot/run.sh)",
-      "WebSearch"
+      "WebSearch",
+      "Bash(grep -iE '\\\\.env\\(\\\\s|$\\)|service-account|credentials|firebase-adminsdk')",
+      "Bash(git remote *)",
+      "Bash(git push *)"
     ]
   }
 }
