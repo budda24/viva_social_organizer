@@ -19,9 +19,12 @@ function arg(name: string): string | undefined {
 const uid = arg("uid");
 const chatIdRaw = arg("chatId");
 const username = arg("username");
+const onboardingArg = arg("onboarding") ?? "pending"; // pending | complete | reset
 
 if (!uid || !chatIdRaw) {
-  console.error('Usage: tsx src/seed-telegram.ts --uid <uid> --chatId <number> [--username "..."]');
+  console.error(
+    'Usage: tsx src/seed-telegram.ts --uid <uid> --chatId <number> [--username "..."] [--onboarding pending|complete|reset]'
+  );
   process.exit(2);
 }
 
@@ -34,16 +37,34 @@ if (!Number.isFinite(chatId)) {
 initializeApp({ credential: applicationDefault() });
 const db = getFirestore();
 
-await db.doc(`users/${uid}`).set(
-  {
-    telegramChatId: chatId,
-    telegramUsername: username ?? null,
-    status: "approved",
-    consentWhatsappMessages: true,
-    updatedAt: FieldValue.serverTimestamp(),
-  },
-  { merge: true }
-);
+const update: Record<string, unknown> = {
+  telegramChatId: chatId,
+  telegramUsername: username ?? null,
+  status: "approved",
+  consentWhatsappMessages: true,
+  updatedAt: FieldValue.serverTimestamp(),
+};
 
-console.log(`[seed] users/${uid} → telegramChatId=${chatId}, username=${username ?? "(none)"}, status=approved`);
+// onboarding flag:
+//   pending  → next message triggers the 3-question flow
+//   complete → skip onboarding entirely (already done elsewhere)
+//   reset    → also wipe bio/topics/lookingFor so a full re-onboard happens
+if (onboardingArg === "complete") {
+  update.onboarding = { step: "complete" };
+} else if (onboardingArg === "reset") {
+  update.onboarding = { step: "pending" };
+  update.bio = FieldValue.delete();
+  update.topics = FieldValue.delete();
+  update.lookingFor = FieldValue.delete();
+} else {
+  update.onboarding = { step: "pending" };
+}
+
+await db.doc(`users/${uid}`).set(update, { merge: true });
+
+console.log(
+  `[seed] users/${uid} → telegramChatId=${chatId}, username=${
+    username ?? "(none)"
+  }, status=approved, onboarding=${onboardingArg}`
+);
 process.exit(0);

@@ -220,15 +220,25 @@ async function handleStart(args: {
       };
     }
 
+    // Bind chat and kick off the scripted onboarding flow immediately —
+    // first question goes out as the welcome message, user's next reply
+    // is the answer. The bot brain's onboarding state machine takes over
+    // from there.
     tx.update(userRef, {
       telegramChatId: chatId,
       telegramUsername: username ?? null,
       telegramDisplayName: displayName ?? null,
       telegramBoundAt: FieldValue.serverTimestamp(),
+      "onboarding.step": "ask_bio",
+      "onboarding.startedAt": FieldValue.serverTimestamp(),
     });
 
-    const greetingName = (userSnap.data()?.displayName as string | undefined) ?? displayName ?? "there";
-    const reply = `Welcome ${greetingName}. I'm Tribu — your guide at VivaTech. Type \`help\` to see what I can do.`;
+    const greetingName =
+      (userSnap.data()?.displayName as string | undefined) ?? displayName ?? "there";
+    const reply =
+      `Welcome ${greetingName}! I'm Tribu — I match you with humans at VivaTech.\n\n` +
+      "3 quick questions then you're set.\n\n" +
+      "1/3 — one line about you. Like \"AI founder building eval tools\" or \"climate VC, early-stage\".";
     tx.set(db.collection("whatsappOutbox").doc(), {
       recipientType: "individual",
       recipientUid: uid,
