@@ -3,9 +3,14 @@
  * and pipes the reply into whatsappOutbox.
  *
  * The CLI inherits cwd = bot/, so it auto-loads bot/CLAUDE.md as its system prompt.
- * Per-call we append user-specific context (uid, phone, last few turns) via
+ * Per-call we append user-specific context (uid, provider, last few turns) via
  * --append-system-prompt. Auth comes from the local `claude login` session
  * stored in ~/.claude/ — no ANTHROPIC_API_KEY required.
+ *
+ * Channel-aware: reads `provider` from the inbox row and writes outbox rows
+ * with the right recipient field (recipientPhone for twilio, recipientChatId
+ * for telegram). Conversation history is keyed by uid so the same person
+ * carries context across channels.
  */
 
 import type { Firestore, QueryDocumentSnapshot } from "firebase-admin/firestore";
@@ -22,6 +27,8 @@ const CLAUDE_TIMEOUT_MS = Number(process.env.CLAUDE_TIMEOUT_MS ?? 60_000);
 const MAX_REPLY_CHARS = 1200;
 const HISTORY_LIMIT = 6;
 
+type Provider = "twilio" | "telegram";
+
 export interface ProcessMessageDeps {
   db: Firestore;
   anthropic: Anthropic;
@@ -35,32 +42,25 @@ interface Turn {
   at: Timestamp;
 }
 
-interface ConversationState {
-  phone: string;
-  uid: string;
-  turns?: Turn[];
-}
-
-async function loadConversation(db: Firestore, phone: string): Promise<Turn[]> {
-  const snap = await db.doc(`conversationStates/${phone}`).get();
-  const data = snap.data() as ConversationState | undefined;
+async function loadConversation(db: Firestore, uid: string): Promise<Turn[]> {
+  const snap = await db.doc(`conversationStates/${uid}`).get();
+  const data = snap.data() as { turns?: Turn[] } | undefined;
   return (data?.turns ?? []).slice(-HISTORY_LIMIT);
 }
 
 async function appendTurns(
   db: Firestore,
-  phone: string,
   uid: string,
   newTurns: Turn[]
 ): Promise<void> {
-  const ref = db.doc(`conversationStates/${phone}`);
+  const ref = db.doc(`conversationStates/${uid}`);
   await db.runTransaction(async (tx) => {
     const snap = await tx.get(ref);
     const prev = (snap.data()?.turns ?? []) as Turn[];
     const next = [...prev, ...newTurns].slice(-(HISTORY_LIMIT * 2));
     tx.set(
       ref,
-      { phone, uid, turns: next, updatedAt: FieldValue.serverTimestamp() },
+      { uid, turns: next, updatedAt: FieldValue.serverTimestamp() },
       { merge: true }
     );
   });
@@ -68,14 +68,16 @@ async function appendTurns(
 
 function buildContextBlock(args: {
   uid: string;
-  phone: string;
+  provider: Provider;
   displayName?: string;
+  phone?: string;
   history: Turn[];
 }): string {
   const lines: string[] = [];
   lines.push(`# Current conversation context`);
   lines.push(`User uid: ${args.uid}`);
-  lines.push(`User phone: ${args.phone}`);
+  lines.push(`Channel: ${args.provider}`);
+  if (args.phone) lines.push(`User phone: ${args.phone}`);
   if (args.displayName) lines.push(`User display name: ${args.displayName}`);
   if (args.history.length > 0) {
     lines.push(``);
@@ -138,7 +140,9 @@ export async function processMessage(deps: ProcessMessageDeps): Promise<void> {
   const inbox = inboxDoc.data();
   const body = String(inbox.body ?? "").trim();
   const uid = String(inbox.uid);
-  const phone = String(inbox.phone);
+  const provider = (inbox.provider as Provider) ?? "twilio";
+  const phone = inbox.phone ? String(inbox.phone) : undefined;
+  const chatId = inbox.chatId as number | undefined;
 
   if (!body) {
     await inboxDoc.ref.update({ intent: "empty" });
@@ -148,29 +152,32 @@ export async function processMessage(deps: ProcessMessageDeps): Promise<void> {
   const userSnap = await db.doc(`users/${uid}`).get();
   const displayName = userSnap.data()?.displayName as string | undefined;
 
-  const history = await loadConversation(db, phone);
-  const contextBlock = buildContextBlock({ uid, phone, displayName, history });
+  const history = await loadConversation(db, uid);
+  const contextBlock = buildContextBlock({ uid, provider, displayName, phone, history });
 
   const reply = await runClaude(body, contextBlock);
 
   const now = Timestamp.now();
-  await appendTurns(db, phone, uid, [
+  await appendTurns(db, uid, [
     { role: "user", content: body, at: now },
     { role: "assistant", content: reply, at: Timestamp.now() },
   ]);
 
-  await db.collection("whatsappOutbox").add({
+  const outboxRow: Record<string, unknown> = {
     recipientType: "individual",
-    recipientPhone: phone,
     recipientUid: uid,
     type: "bot_reply",
-    provider: "twilio",
+    provider,
     body: reply,
     status: "queued",
     attempts: 0,
     createdAt: FieldValue.serverTimestamp(),
     scheduledFor: Timestamp.now(),
-  });
+  };
+  if (provider === "twilio" && phone) outboxRow.recipientPhone = phone;
+  if (provider === "telegram" && chatId !== undefined) outboxRow.recipientChatId = chatId;
+
+  await db.collection("whatsappOutbox").add(outboxRow);
 
   await inboxDoc.ref.update({ intent: "claude_reply" });
 }

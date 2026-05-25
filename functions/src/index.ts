@@ -7,9 +7,13 @@ setGlobalOptions({ region: "europe-central2", maxInstances: 10 });
 export { redeemInviteCode } from "./invites/redeem";
 export { reclaimStaleInbox } from "./bot/reclaimInbox";
 
-// === Twilio WhatsApp Sandbox — active for prototype ===
-export { twilioWebhook } from "./bot/twilioWebhook";
-export { onTwilioOutboxCreated } from "./messaging/twilioOutbox";
+// === Twilio WhatsApp (Sandbox) — fallback channel ===
+export { twilioWebhook } from "./channels/twilio/webhook";
+export { onTwilioOutboxCreated } from "./channels/twilio/outbox";
+
+// === Telegram — primary channel ===
+export { telegramWebhook } from "./channels/telegram/webhook";
+export { onTelegramOutboxCreated } from "./channels/telegram/outbox";
 
 // === Whapi.cloud path — disabled until Whapi account + WHAPI_TOKEN / WHAPI_WEBHOOK_SECRET are configured ===
 // export { whapiWebhook } from "./bot/webhook";

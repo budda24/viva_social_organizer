@@ -2,6 +2,8 @@ import { onRequest } from "firebase-functions/v2/https";
 import { defineSecret } from "firebase-functions/params";
 import { getFirestore, FieldValue } from "firebase-admin/firestore";
 import twilio from "twilio";
+import { resolveUserByChannel } from "../identity";
+import { checkAndIncrement } from "../rateLimit";
 
 const TWILIO_AUTH_TOKEN = defineSecret("TWILIO_AUTH_TOKEN");
 
@@ -13,6 +15,10 @@ const PUBLIC_URL =
   process.env.TWILIO_WEBHOOK_PUBLIC_URL ??
   "https://europe-central2-viva-social-organizer.cloudfunctions.net/twilioWebhook";
 
+function ackEmpty(res: import("express").Response) {
+  res.status(200).type("text/xml").send("<Response/>");
+}
+
 /**
  * Twilio WhatsApp inbound webhook.
  *
@@ -23,8 +29,9 @@ const PUBLIC_URL =
  *   MessageSid: "SM..."
  *   ProfileName: "<sender's WhatsApp name>"
  *
- * We validate the X-Twilio-Signature, resolve phone → user, write a botInbox row
- * the same shape the laptop brain already expects, and return TwiML 200 fast.
+ * Validate X-Twilio-Signature, resolve phone → user, check rate limit, write
+ * a botInbox row, return TwiML 200 fast. The reply is sent later via outbox
+ * because Claude takes longer than Twilio's webhook timeout.
  */
 export const twilioWebhook = onRequest(
   { secrets: [TWILIO_AUTH_TOKEN], region: "europe-central2", invoker: "public" },
@@ -57,40 +64,35 @@ export const twilioWebhook = onRequest(
     const profileName = String(req.body?.ProfileName ?? "");
 
     if (!from.startsWith("whatsapp:") || !body || !messageSid) {
-      res.status(200).type("text/xml").send("<Response/>");
+      ackEmpty(res);
       return;
     }
 
     const phone = from.replace(/^whatsapp:/, "");
+    const user = await resolveUserByChannel("twilio", phone);
+    if (!user) {
+      console.warn(`[twilioWebhook] no approved user for phone ${phone}; ignoring`);
+      ackEmpty(res);
+      return;
+    }
+
+    const rate = await checkAndIncrement("twilio", user.uid);
+    if (!rate.allowed) {
+      console.warn(
+        `[twilioWebhook] rate-limited uid=${user.uid} reason=${rate.reason} retryAfter=${rate.retryAfterSec}s`
+      );
+      ackEmpty(res);
+      return;
+    }
+
     const db = getFirestore();
-
-    const userSnap = await db
-      .collection("users")
-      .where("whatsappPhoneE164", "==", phone)
-      .limit(1)
-      .get();
-
-    if (userSnap.empty) {
-      console.warn(`[twilioWebhook] no user for phone ${phone}; ignoring`);
-      // Empty TwiML — Twilio won't reply to the user.
-      res.status(200).type("text/xml").send("<Response/>");
-      return;
-    }
-
-    const userDoc = userSnap.docs[0];
-    if (userDoc.data().status !== "approved") {
-      console.warn(`[twilioWebhook] user ${userDoc.id} not approved`);
-      res.status(200).type("text/xml").send("<Response/>");
-      return;
-    }
-
     await db.doc(`botInbox/${messageSid}`).set(
       {
         messageId: messageSid,
         provider: "twilio",
         phone,
         profileName,
-        uid: userDoc.id,
+        uid: user.uid,
         body,
         receivedAt: FieldValue.serverTimestamp(),
         status: "pending",
@@ -99,8 +101,6 @@ export const twilioWebhook = onRequest(
       { merge: true }
     );
 
-    // Reply with empty TwiML — the actual reply gets sent later via the outbox
-    // (Claude takes longer than Twilio's webhook timeout).
-    res.status(200).type("text/xml").send("<Response/>");
+    ackEmpty(res);
   }
 );

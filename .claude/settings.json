@@ -13,7 +13,16 @@
       "WebSearch",
       "Bash(grep -iE '\\\\.env\\(\\\\s|$\\)|service-account|credentials|firebase-adminsdk')",
       "Bash(git remote *)",
-      "Bash(git push *)"
+      "Bash(git push *)",
+      "Bash(git switch *)",
+      "Bash(git branch *)",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:blog.kraya-ai.com)",
+      "WebFetch(domain:zenvanriel.com)",
+      "Bash(git mv *)",
+      "Bash(npm run *)",
+      "Bash(npm install *)",
+      "Bash(firebase functions:log --only telegramWebhook,onTelegramOutboxCreated -n 30)"
     ]
   }
 }
