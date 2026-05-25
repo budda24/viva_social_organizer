@@ -9,7 +9,7 @@
  * Run for the event: `bash run.sh` (caffeinate + auto-restart wrapper)
  */
 
-import "dotenv/config";
+import "./env.js";
 import { initializeApp, applicationDefault, cert } from "firebase-admin/app";
 import { getFirestore, FieldValue, Timestamp } from "firebase-admin/firestore";
 import Anthropic from "@anthropic-ai/sdk";

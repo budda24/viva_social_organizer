@@ -5,7 +5,15 @@ initializeApp();
 setGlobalOptions({ region: "europe-central2", maxInstances: 10 });
 
 export { redeemInviteCode } from "./invites/redeem";
-export { whapiWebhook } from "./bot/webhook";
-export { fallbackBrain } from "./bot/fallbackBrain";
 export { reclaimStaleInbox } from "./bot/reclaimInbox";
-export { drainOutbox, onOutboxCreated } from "./messaging/outbox";
+
+// === Twilio WhatsApp Sandbox — active for prototype ===
+export { twilioWebhook } from "./bot/twilioWebhook";
+export { onTwilioOutboxCreated } from "./messaging/twilioOutbox";
+
+// === Whapi.cloud path — disabled until Whapi account + WHAPI_TOKEN / WHAPI_WEBHOOK_SECRET are configured ===
+// export { whapiWebhook } from "./bot/webhook";
+// export { drainOutbox, onOutboxCreated } from "./messaging/outbox";
+
+// === Fallback brain — disabled until ANTHROPIC_API_KEY secret is set in Firebase ===
+// export { fallbackBrain } from "./bot/fallbackBrain";
