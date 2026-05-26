@@ -1,89 +1,45 @@
+import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_web_plugins/url_strategy.dart';
 
-void main() {
-  runApp(const VivaSocialApp());
+import 'firebase_options.dart';
+import 'screens/invite_screen.dart';
+import 'screens/landing_screen.dart';
+import 'screens/linkedin_callback_screen.dart';
+import 'screens/welcome_screen.dart';
+import 'theme/app_theme.dart';
+
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  // Path-based URLs (no leading "#") — required so LinkedIn can redirect to
+  // /auth/linkedin/callback with a clean URI that matches what we registered
+  // in the LinkedIn dev portal.
+  usePathUrlStrategy();
+  await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+  runApp(const VivaTribeApp());
 }
 
-class VivaSocialApp extends StatelessWidget {
-  const VivaSocialApp({super.key});
+class VivaTribeApp extends StatelessWidget {
+  const VivaTribeApp({super.key});
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Founders & Builders @ VivaTech',
+      title: 'Viva Tribe · VivaTech 2026',
       debugShowCheckedModeBanner: false,
-      theme: _buildTheme(),
-      home: const _PlaceholderScreen(),
-    );
-  }
-}
-
-ThemeData _buildTheme() {
-  const ink = Color(0xFF1F1D1A);
-  const bg = Color(0xFFFAF7F2);
-  const accent = Color(0xFFC9522B);
-
-  return ThemeData(
-    colorScheme: ColorScheme.fromSeed(
-      seedColor: accent,
-      brightness: Brightness.light,
-      surface: bg,
-      onSurface: ink,
-    ),
-    scaffoldBackgroundColor: bg,
-    textTheme: const TextTheme(
-      displayMedium: TextStyle(
-        fontWeight: FontWeight.w600,
-        color: ink,
-        height: 1.1,
-      ),
-      bodyLarge: TextStyle(color: ink, height: 1.55),
-      bodyMedium: TextStyle(color: ink, height: 1.55),
-    ),
-    useMaterial3: true,
-  );
-}
-
-class _PlaceholderScreen extends StatelessWidget {
-  const _PlaceholderScreen();
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      body: Center(
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 560),
-          child: Padding(
-            padding: const EdgeInsets.all(32),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'Une petite circle of founders à Paris.',
-                  style: TextStyle(
-                    fontStyle: FontStyle.italic,
-                    color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.55),
-                  ),
-                ),
-                const SizedBox(height: 24),
-                Text(
-                  'Founders & Builders\n@ VivaTech 2026',
-                  style: Theme.of(context).textTheme.displayMedium?.copyWith(fontSize: 42),
-                ),
-                const SizedBox(height: 24),
-                Text(
-                  'Member portal — coming soon.\n\n'
-                  'If you have an invite code, you will be redirected here after signing in with LinkedIn.',
-                  style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                        color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.7),
-                      ),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
+      theme: buildAppTheme(),
+      initialRoute: '/',
+      routes: {
+        '/': (_) => const LandingScreen(),
+        '/in': (_) => const InviteScreen(),
+        '/auth/linkedin/callback': (_) => const LinkedInCallbackScreen(),
+        '/welcome': (context) {
+          final args = ModalRoute.of(context)?.settings.arguments;
+          return WelcomeScreen(
+            inviteCode: args is String ? args : 'VIVA-26-LK7',
+          );
+        },
+      },
     );
   }
 }

@@ -2,8 +2,8 @@
  * Laptop-hosted bot brain for VivaTech Social Organizer.
  *
  * Long-running process. Polls Firestore botInbox for pending messages and
- * processes them in parallel (up to MAX_CONCURRENT). Each message spawns
- * Claude via the local CLI subprocess and writes the reply to whatsappOutbox.
+ * processes them in parallel (up to MAX_CONCURRENT). Each message goes through
+ * the Claude Agent SDK in-process and the reply is written to whatsappOutbox.
  *
  * Run locally: `npm run dev`
  * Run for the event: `bash run.sh` (caffeinate + auto-restart wrapper)
@@ -12,7 +12,6 @@
 import "./env.js";
 import { initializeApp, applicationDefault, cert } from "firebase-admin/app";
 import { getFirestore, FieldValue, Timestamp } from "firebase-admin/firestore";
-import Anthropic from "@anthropic-ai/sdk";
 import * as fs from "node:fs";
 import { processMessage } from "./brain.js";
 import { enrichmentTick } from "./enrich.js";
@@ -32,7 +31,6 @@ if (sa && fs.existsSync(sa)) {
 }
 
 const db = getFirestore();
-const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
 const inFlight = new Set<string>();
 const enrichInFlight = new Set<string>();
@@ -80,7 +78,7 @@ async function claimOne(): Promise<FirebaseFirestore.QueryDocumentSnapshot | nul
 
 async function processOne(doc: FirebaseFirestore.QueryDocumentSnapshot): Promise<void> {
   try {
-    await processMessage({ db, anthropic, inboxDoc: doc, hostId: HOST_ID });
+    await processMessage({ db, inboxDoc: doc, hostId: HOST_ID });
     await doc.ref.update({
       status: "done",
       completedAt: FieldValue.serverTimestamp(),

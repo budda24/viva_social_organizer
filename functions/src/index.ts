@@ -5,6 +5,8 @@ initializeApp();
 setGlobalOptions({ region: "europe-central2", maxInstances: 10 });
 
 export { redeemInviteCode } from "./invites/redeem";
+export { bootstrapUserProfile } from "./users/bootstrap";
+export { linkedinSignIn } from "./users/linkedin";
 export { reclaimStaleInbox } from "./bot/reclaimInbox";
 
 // === Twilio WhatsApp (Sandbox) — fallback channel ===

@@ -128,8 +128,10 @@ export async function runOnboardingStep(
           reply: "Need one line on your goal. " + ASK_GOAL,
         };
       }
+      // Use nested-object syntax — dot-notation keys in set({...}, {merge}) are
+      // treated as LITERAL field names by the Admin SDK, not field paths.
       await userRef.set(
-        { goal, "onboarding.step": "ask_energy" },
+        { goal, onboarding: { step: "ask_energy" } },
         { merge: true }
       );
       return { handled: true, reply: ASK_ENERGY };
@@ -146,8 +148,10 @@ export async function runOnboardingStep(
       await userRef.set(
         {
           energy,
-          "onboarding.step": "complete",
-          "onboarding.completedAt": FieldValue.serverTimestamp(),
+          onboarding: {
+            step: "complete",
+            completedAt: FieldValue.serverTimestamp(),
+          },
         },
         { merge: true }
       );
@@ -157,7 +161,7 @@ export async function runOnboardingStep(
     default: {
       // Unknown step — reset and re-ask.
       await userRef.set(
-        { "onboarding.step": "pending" },
+        { onboarding: { step: "pending" } },
         { merge: true }
       );
       return { handled: true, reply: ASK_GOAL };

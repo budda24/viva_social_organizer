@@ -229,7 +229,7 @@ async function handleStart(args: {
       telegramUsername: username ?? null,
       telegramDisplayName: displayName ?? null,
       telegramBoundAt: FieldValue.serverTimestamp(),
-      "onboarding.step": "ask_bio",
+      "onboarding.step": "ask_goal",
       "onboarding.startedAt": FieldValue.serverTimestamp(),
     });
 
@@ -237,8 +237,9 @@ async function handleStart(args: {
       (userSnap.data()?.displayName as string | undefined) ?? displayName ?? "there";
     const reply =
       `Welcome ${greetingName}! I'm Tribu — I match you with humans at VivaTech.\n\n` +
-      "3 quick questions then you're set.\n\n" +
-      "1/3 — one line about you. Like \"AI founder building eval tools\" or \"climate VC, early-stage\".";
+      "2 quick questions then you're set.\n\n" +
+      "1/2 — what's your goal at VivaTech? One line. Like \"meet European AI VCs\", " +
+      "\"sell to enterprise CFOs\", or \"find a co-founder\".";
     tx.set(db.collection("whatsappOutbox").doc(), {
       recipientType: "individual",
       recipientUid: uid,

@@ -1,46 +1,48 @@
-# Bot — Laptop-hosted Claude Code brain
+# Bot — Laptop-hosted Claude brain
 
-Long-running Node process that polls Firestore `botInbox`, spawns `claude -p` per message, and writes replies to `whatsappOutbox`.
+Long-running Node process that polls Firestore `botInbox`, calls the **Claude Agent SDK** in-process per message, and writes replies to `whatsappOutbox`.
 
 ```
-WhatsApp user → Whapi.cloud → whapiWebhook (Cloud Function)
+User (Telegram / WhatsApp) → channel webhook (Cloud Function)
                                   ↓
                           Firestore botInbox
                                   ↓
-                       this process (polls every 2s)
+                       this process (polls every 2s, MAX_CONCURRENT in flight)
                                   ↓
-                       spawn `claude -p <msg>` in this dir
-                       (auto-loads ./CLAUDE.md as system prompt)
+                       Claude Agent SDK query()
+                       (CLAUDE.md loaded once at start as systemPrompt,
+                        per-call context block appended)
                                   ↓
                        Firestore whatsappOutbox
                                   ↓
-                       onOutboxCreated (Cloud Function)
+                       onTelegramOutboxCreated / onTwilioOutboxCreated
                                   ↓
-                       Whapi.cloud → WhatsApp user
+                       Telegram Bot API / Twilio → user
 ```
 
 ## Files
 
-- [src/index.ts](src/index.ts) — polling loop, claim-and-process
-- [src/brain.ts](src/brain.ts) — spawns `claude -p`, manages conversation history
+- [src/index.ts](src/index.ts) — polling loop, parallel claim-and-process, heartbeat
+- [src/brain.ts](src/brain.ts) — Agent SDK call, context building, outbox write
+- [CLAUDE.md](CLAUDE.md) — bot persona/rules, loaded once and passed as systemPrompt
 - [src/inject.ts](src/inject.ts) — local test: drop a fake inbox row, read back the reply
-- [CLAUDE.md](CLAUDE.md) — bot persona/rules (auto-loaded by `claude` when cwd = bot/)
+- [src/onboarding.ts](src/onboarding.ts) — deterministic 3-question onboarding gate
+- [src/enrich.ts](src/enrich.ts) — async LinkedIn-style enrichment worker (still uses `claude -p` for WebSearch tool)
 
 ## Prototype setup
 
-### 1. Install + log in to the Claude Code CLI
+### 1. Claude auth
 
-The VSCode extension's binary isn't in `$PATH`. Install standalone:
+The Agent SDK reads, in order:
 
-```bash
-npm install -g @anthropic-ai/claude-code
-claude --version    # verify
-claude              # one-time login (opens browser, uses your Claude subscription)
-```
+1. `ANTHROPIC_API_KEY` env var (paid API, prompt-caching available, no per-account rate limits — recommended for real load)
+2. Claude Code OAuth from `~/.claude/` (your subscription — log in once with `claude login` after installing `@anthropic-ai/claude-code` globally)
 
-The bot brain spawns `claude -p` as a subprocess and inherits this login from `~/.claude/`. **No `ANTHROPIC_API_KEY` is needed** — usage counts against your Claude subscription rate limits.
+**No env change needed if you've already done `claude login`** — the SDK picks it up automatically. Subscription usage counts against your Max plan rate limits.
 
-> ⚠️ Anthropic's terms intend the subscription for personal use. Using it to serve many WhatsApp users (a product) is gray-area at best. Fine for personal/prototype; switch to the API for production.
+> ⚠️ Anthropic's terms intend the subscription for personal use. Fine for prototype/personal; switch to API key + prompt caching for multi-user serving.
+>
+> The async enrichment worker ([src/enrich.ts](src/enrich.ts)) still spawns the `claude -p` CLI because it uses the built-in WebSearch tool. It needs the CLI installed and logged in. The chat brain itself doesn't.
 
 ### 2. Set up Firebase credentials
 
@@ -141,22 +143,18 @@ Free, shared sandbox number, no SIM/eSIM needed. Anyone you give the join code c
 
 ## Knobs
 
-Env vars consumed by [brain.ts](src/brain.ts):
+Env vars consumed by [brain.ts](src/brain.ts) + [index.ts](src/index.ts):
 
 | Var | Default | Purpose |
 |---|---|---|
-| `CLAUDE_BIN` | `claude` | Path to CLI, override if not in PATH |
-| `CLAUDE_MODEL` | `claude-haiku-4-5` | Model passed via `--model` |
-| `CLAUDE_TIMEOUT_MS` | `60000` | Kill claude if it hangs |
+| `ANTHROPIC_API_KEY` | (unset) | Optional. If set, Agent SDK uses API auth instead of OAuth |
+| `CLAUDE_MODEL` | `claude-haiku-4-5` | Model passed to Agent SDK |
 | `POLL_INTERVAL_MS` | `2000` | Inbox poll cadence |
-| `BOT_HOST_ID` | `laptop-<rand>` | Recorded on claimed rows |
-
-Claude auth is taken from the local `claude login` session in `~/.claude/`, not from any env var.
+| `MAX_CONCURRENT` | `5` | Max messages processed in parallel by one host |
+| `BOT_HOST_ID` | `laptop-<rand>` | Recorded on claimed rows + heartbeat |
 
 ## What this prototype does NOT do yet
 
-- **Tool use** — the bot only generates text. It can say "OK, I'll mark you free for 60 min" but doesn't actually write `freeUntil` to Firestore. To add real actions, either:
-  - parse a structured response from Claude (e.g. JSON like `{reply, actions: [...]}`) and execute in [brain.ts](src/brain.ts), or
-  - run a custom MCP server exposing `writeFreeUntil`, `readUser`, etc. and register it with the spawned `claude` via `--mcp-config`.
-- **Auth scoping** — every `claude` invocation uses the laptop user's local `claude login` (the same account you use in VSCode). Every WhatsApp user's message hits your one Claude subscription.
-- **Multi-user concurrency caps** — current poll loop processes one message at a time. For a real event with 100+ members, raise the parallelism in [src/index.ts](src/index.ts).
+- **Tool use** — Agent SDK runs with `allowedTools: []`, so Claude only generates text. To let it call Firestore directly, set `allowedTools` and register MCP tools in the `query()` call.
+- **Prompt caching** — system prompt + member directory are identical across requests and ideal for caching, but not wired up yet. Required before serving 10+ concurrent users (see [docs/BOT_ARCHITECTURE.md](../docs/BOT_ARCHITECTURE.md) capacity table).
+- **Auth scoping** — when using OAuth, every user's message hits your one Claude subscription. Set `ANTHROPIC_API_KEY` to use the paid API for production.

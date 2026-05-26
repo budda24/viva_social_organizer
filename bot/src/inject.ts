@@ -79,8 +79,7 @@ async function main() {
 
   const out = await db
     .collection("whatsappOutbox")
-    .where("recipientPhone", "==", phone)
-    .where("type", "==", "bot_reply")
+    .where("recipientUid", "==", uid)
     .orderBy("createdAt", "desc")
     .limit(1)
     .get();
@@ -93,7 +92,9 @@ async function main() {
   console.log(`\n[inject] === REPLY ===`);
   console.log(reply.body);
   console.log(`[inject] ===  END  ===\n`);
-  console.log(`[inject] outbox status: ${reply.status} · doc: whatsappOutbox/${out.docs[0].id}`);
+  console.log(
+    `[inject] outbox status: ${reply.status} · type: ${reply.type} · doc: whatsappOutbox/${out.docs[0].id}`
+  );
 
   process.exit(0);
 }

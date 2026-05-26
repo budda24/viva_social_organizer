@@ -1,11 +1,15 @@
 /**
- * Bot brain — spawns the Claude Code CLI (`claude -p`) per inbound message
- * and pipes the reply into whatsappOutbox.
+ * Bot brain — calls the Claude Agent SDK in-process per inbound message and
+ * pipes the reply into whatsappOutbox.
  *
- * The CLI inherits cwd = bot/, so it auto-loads bot/CLAUDE.md as its system prompt.
- * Per-call we append user-specific context (uid, provider, last few turns) via
- * --append-system-prompt. Auth comes from the local `claude login` session
- * stored in ~/.claude/ — no ANTHROPIC_API_KEY required.
+ * Was previously a `claude -p` subprocess spawn; the swap removes the ~2-3s
+ * per-message cold start and runs natively async. CLAUDE.md is loaded once at
+ * module init and passed as systemPrompt (Agent SDK doesn't auto-load it the
+ * way the CLI does in cwd).
+ *
+ * Auth: Agent SDK reads ANTHROPIC_API_KEY if set; otherwise falls back to the
+ * Claude Code OAuth session in ~/.claude/. Subscription auth works for the
+ * prototype; switch to API key + prompt caching for real multi-user load.
  *
  * Channel-aware: reads `provider` from the inbox row and writes outbox rows
  * with the right recipient field (recipientPhone for twilio, recipientChatId
@@ -14,25 +18,32 @@
  */
 
 import type { Firestore, QueryDocumentSnapshot } from "firebase-admin/firestore";
-import type Anthropic from "@anthropic-ai/sdk";
 import { FieldValue, Timestamp } from "firebase-admin/firestore";
-import { spawn } from "node:child_process";
+import { query } from "@anthropic-ai/claude-agent-sdk";
+import * as fs from "node:fs";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { runOnboardingStep, type UserDocLike } from "./onboarding.js";
+import {
+  describePendingAction,
+  executePendingAction,
+  parseActionMarker,
+  type PendingAction,
+} from "./actions.js";
 
 const BOT_DIR = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
-const CLAUDE_BIN = process.env.CLAUDE_BIN ?? "claude";
+const CLAUDE_MD_PATH = path.join(BOT_DIR, "CLAUDE.md");
 const CLAUDE_MODEL = process.env.CLAUDE_MODEL ?? "claude-haiku-4-5";
-const CLAUDE_TIMEOUT_MS = Number(process.env.CLAUDE_TIMEOUT_MS ?? 60_000);
 const MAX_REPLY_CHARS = 1200;
 const HISTORY_LIMIT = 6;
+
+// Read once at module load — system prompt rarely changes mid-process.
+const BASE_SYSTEM_PROMPT = fs.readFileSync(CLAUDE_MD_PATH, "utf-8");
 
 type Provider = "twilio" | "telegram";
 
 export interface ProcessMessageDeps {
   db: Firestore;
-  anthropic: Anthropic;
   inboxDoc: QueryDocumentSnapshot;
   hostId: string;
 }
@@ -43,11 +54,114 @@ interface Turn {
   at: Timestamp;
 }
 
-async function loadConversation(db: Firestore, uid: string): Promise<Turn[]> {
-  const snap = await db.doc(`conversationStates/${uid}`).get();
-  const data = snap.data() as { turns?: Turn[] } | undefined;
-  return (data?.turns ?? []).slice(-HISTORY_LIMIT);
+interface EventCreationState {
+  step: "awaiting_description";
+  startedAt: Timestamp;
 }
+
+interface ConvoState {
+  turns?: Turn[];
+  pendingAction?: PendingAction;
+  pendingActionAt?: Timestamp;
+  eventCreation?: EventCreationState;
+}
+
+async function loadConvoState(db: Firestore, uid: string): Promise<ConvoState> {
+  const snap = await db.doc(`conversationStates/${uid}`).get();
+  return (snap.data() as ConvoState | undefined) ?? {};
+}
+
+async function loadConversation(db: Firestore, uid: string): Promise<Turn[]> {
+  const state = await loadConvoState(db, uid);
+  return (state.turns ?? []).slice(-HISTORY_LIMIT);
+}
+
+async function setPendingAction(
+  db: Firestore,
+  uid: string,
+  action: PendingAction | null
+): Promise<void> {
+  const ref = db.doc(`conversationStates/${uid}`);
+  if (action) {
+    await ref.set(
+      {
+        uid,
+        pendingAction: action,
+        pendingActionAt: FieldValue.serverTimestamp(),
+        updatedAt: FieldValue.serverTimestamp(),
+      },
+      { merge: true }
+    );
+  } else {
+    await ref.set(
+      {
+        uid,
+        pendingAction: FieldValue.delete(),
+        pendingActionAt: FieldValue.delete(),
+        updatedAt: FieldValue.serverTimestamp(),
+      },
+      { merge: true }
+    );
+  }
+}
+
+function isYes(text: string): boolean {
+  return /^(yes|y|yep|yeah|ok|okay|confirm|do it|go|sure)$/i.test(text.trim());
+}
+
+function isNo(text: string): boolean {
+  return /^(no|n|nope|cancel|stop that|abort|nah)$/i.test(text.trim());
+}
+
+// `create event`, `/event`, `new event`, `add event`, optionally with an inline
+// description after a colon or space. The optional rest gets parsed as the
+// description in the same turn so power users can one-shot it.
+//
+// Plain `event …` without create/new/add OR a leading slash is rejected so
+// casual usage like "the event went well" doesn't trigger the wizard.
+const CREATE_EVENT_CMD_RE =
+  /^\s*(?:\/[\w-]*event|(?:create|new|add)[\s_-]?event)\b[:\s-]*(.*)$/i;
+
+function matchCreateEventCommand(text: string): { matched: boolean; rest: string } {
+  const m = text.match(CREATE_EVENT_CMD_RE);
+  if (!m) return { matched: false, rest: "" };
+  return { matched: true, rest: m[1].trim() };
+}
+
+async function setEventCreation(
+  db: Firestore,
+  uid: string,
+  step: "awaiting_description" | null
+): Promise<void> {
+  const ref = db.doc(`conversationStates/${uid}`);
+  if (step) {
+    await ref.set(
+      {
+        uid,
+        eventCreation: {
+          step,
+          startedAt: Timestamp.now(),
+        },
+        updatedAt: FieldValue.serverTimestamp(),
+      },
+      { merge: true }
+    );
+  } else {
+    await ref.set(
+      {
+        uid,
+        eventCreation: FieldValue.delete(),
+        updatedAt: FieldValue.serverTimestamp(),
+      },
+      { merge: true }
+    );
+  }
+}
+
+const CREATE_EVENT_PROMPT =
+  "What's the event? One message — title, when, where. " +
+  "Example: \"Drinks tonight 8pm at Café Marly, max 12, open hang.\" " +
+  "Reply `cancel` to back out.";
 
 interface DirectoryMember {
   uid: string;
@@ -150,9 +264,42 @@ function buildContextBlock(args: {
   self: SelfContext;
   history: Turn[];
   members: DirectoryMember[];
+  pendingAction?: PendingAction;
+  eventMode?: boolean;
 }): string {
   const lines: string[] = [];
+  if (args.eventMode) {
+    lines.push(`# EVENT_CREATION_MODE (single-turn directive)`);
+    lines.push(
+      `The user just used the create-event command and this message is their event description.`
+    );
+    lines.push(
+      `Parse it into a \`create_event\` action marker per your system prompt's Action markers section.`
+    );
+    lines.push(
+      `Reply with a short human preview (e.g. "Drinks tonight 8pm — Café Marly. Confirm with yes to ping everyone.") and then the marker.`
+    );
+    lines.push(
+      `If the description is missing time or title, ask ONE short follow-up question with no marker — do NOT fall back to the menu.`
+    );
+    lines.push(
+      `If they're trying to cancel ("nvm", "skip", "actually no"), reply "Cancelled." with no marker.`
+    );
+    lines.push(``);
+  }
   lines.push(`# Current conversation context`);
+  const nowParis = new Intl.DateTimeFormat("en-GB", {
+    timeZone: "Europe/Paris",
+    weekday: "short",
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).format(new Date());
+  lines.push(`Current Paris time: ${nowParis}`);
+  lines.push(`Current ISO timestamp: ${new Date().toISOString()}`);
   lines.push(`User uid: ${args.uid}`);
   lines.push(`Channel: ${args.provider}`);
   if (args.phone) lines.push(`User phone: ${args.phone}`);
@@ -188,6 +335,15 @@ function buildContextBlock(args: {
     lines.push(`(empty — no other approved members yet; tell the user nobody else is here)`);
   }
 
+  if (args.pendingAction) {
+    lines.push(``);
+    lines.push(`## Pending action`);
+    lines.push(describePendingAction(args.pendingAction));
+    lines.push(
+      `(User reply was NOT a recognised yes/no — the action stays pending only if you re-emit the same marker. Otherwise it's cancelled by the harness.)`
+    );
+  }
+
   if (args.history.length > 0) {
     lines.push(``);
     lines.push(`## Recent turns (oldest first)`);
@@ -198,50 +354,32 @@ function buildContextBlock(args: {
   return lines.join("\n");
 }
 
-function runClaude(userMessage: string, contextBlock: string): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const args = [
-      "-p",
-      userMessage,
-      "--model",
-      CLAUDE_MODEL,
-      "--output-format",
-      "text",
-      "--append-system-prompt",
-      contextBlock,
-    ];
-    const child = spawn(CLAUDE_BIN, args, {
+async function runClaude(userMessage: string, contextBlock: string): Promise<string> {
+  const systemPrompt = `${BASE_SYSTEM_PROMPT}\n\n${contextBlock}`;
+
+  const result = query({
+    prompt: userMessage,
+    options: {
+      model: CLAUDE_MODEL,
+      systemPrompt,
+      allowedTools: [],
+      permissionMode: "bypassPermissions",
+      maxTurns: 1,
       cwd: BOT_DIR,
-      stdio: ["ignore", "pipe", "pipe"],
-    });
-
-    let stdout = "";
-    let stderr = "";
-    const timer = setTimeout(() => {
-      child.kill("SIGKILL");
-      reject(new Error(`claude timed out after ${CLAUDE_TIMEOUT_MS}ms`));
-    }, CLAUDE_TIMEOUT_MS);
-
-    child.stdout.on("data", (d) => (stdout += d.toString()));
-    child.stderr.on("data", (d) => (stderr += d.toString()));
-    child.on("error", (e) => {
-      clearTimeout(timer);
-      reject(new Error(`failed to spawn ${CLAUDE_BIN}: ${e.message}`));
-    });
-    child.on("close", (code) => {
-      clearTimeout(timer);
-      if (code !== 0) {
-        reject(new Error(`claude exited ${code}: ${stderr.trim() || stdout.trim()}`));
-        return;
-      }
-      const reply = stdout.trim();
-      if (!reply) {
-        reject(new Error(`claude returned empty output. stderr: ${stderr.trim()}`));
-        return;
-      }
-      resolve(reply.length > MAX_REPLY_CHARS ? reply.slice(0, MAX_REPLY_CHARS) : reply);
-    });
+    },
   });
+
+  let reply = "";
+  for await (const message of result) {
+    if (message.type !== "assistant") continue;
+    for (const block of message.message.content) {
+      if (block.type === "text") reply += block.text;
+    }
+  }
+
+  reply = reply.trim();
+  if (!reply) throw new Error("Claude Agent SDK returned no text content");
+  return reply.length > MAX_REPLY_CHARS ? reply.slice(0, MAX_REPLY_CHARS) : reply;
 }
 
 async function writeOutbox(
@@ -304,6 +442,116 @@ export async function processMessage(deps: ProcessMessageDeps): Promise<void> {
     return;
   }
 
+  const convoState = await loadConvoState(db, uid);
+  const pending = convoState.pendingAction;
+
+  // Pre-Claude: if there's a pendingAction and user confirms / cancels,
+  // handle deterministically and skip Claude entirely.
+  if (pending) {
+    if (isYes(body)) {
+      const result = await executePendingAction(
+        { db, uid, userData: userData as Record<string, unknown> },
+        pending
+      );
+      await setPendingAction(db, uid, null);
+      await writeOutbox(db, {
+        provider,
+        uid,
+        phone,
+        chatId,
+        body: result.reply,
+        type: "action_confirm",
+      });
+      await appendTurns(db, uid, [
+        { role: "user", content: body, at: Timestamp.now() },
+        { role: "assistant", content: result.reply, at: Timestamp.now() },
+      ]);
+      await inboxDoc.ref.update({ intent: "action_executed" });
+      return;
+    }
+    if (isNo(body)) {
+      await setPendingAction(db, uid, null);
+      const cancelMsg = "Cancelled.";
+      await writeOutbox(db, {
+        provider,
+        uid,
+        phone,
+        chatId,
+        body: cancelMsg,
+        type: "action_cancel",
+      });
+      await appendTurns(db, uid, [
+        { role: "user", content: body, at: Timestamp.now() },
+        { role: "assistant", content: cancelMsg, at: Timestamp.now() },
+      ]);
+      await inboxDoc.ref.update({ intent: "action_cancelled" });
+      return;
+    }
+    // Anything else expires the pending action — the user moved on.
+    await setPendingAction(db, uid, null);
+  }
+
+  // Event-creation wizard.
+  //
+  // Three entry points to the same final state ("eventMode = true, claudeBody
+  // is the description"):
+  //   1. `create event` with nothing after → ask for description, return
+  //      (next turn picks up here through path 3)
+  //   2. `create event drinks tonight 8pm` → inline; description = rest of msg
+  //   3. previous turn set step=awaiting_description → this msg IS the description
+  //
+  // In modes 2 and 3, we set eventMode = true and route the message to Claude
+  // with the EVENT_CREATION_MODE directive in the context block. Claude returns
+  // a create_event action marker which the existing post-Claude parser stores
+  // as a pendingAction; the user then confirms with `yes` to actually write
+  // the event + fan out the broadcast.
+  let eventMode = false;
+  let claudeBody = body;
+
+  const createCmd = matchCreateEventCommand(body);
+  if (createCmd.matched) {
+    if (!createCmd.rest) {
+      await setEventCreation(db, uid, "awaiting_description");
+      await writeOutbox(db, {
+        provider,
+        uid,
+        phone,
+        chatId,
+        body: CREATE_EVENT_PROMPT,
+        type: "event_wizard_prompt",
+      });
+      await appendTurns(db, uid, [
+        { role: "user", content: body, at: Timestamp.now() },
+        { role: "assistant", content: CREATE_EVENT_PROMPT, at: Timestamp.now() },
+      ]);
+      await inboxDoc.ref.update({ intent: "event_wizard_started" });
+      return;
+    }
+    eventMode = true;
+    claudeBody = createCmd.rest;
+  } else if (convoState.eventCreation?.step === "awaiting_description") {
+    if (/^(cancel|nvm|skip|abort)$/i.test(body)) {
+      await setEventCreation(db, uid, null);
+      const cancelMsg = "Cancelled.";
+      await writeOutbox(db, {
+        provider,
+        uid,
+        phone,
+        chatId,
+        body: cancelMsg,
+        type: "event_wizard_cancel",
+      });
+      await appendTurns(db, uid, [
+        { role: "user", content: body, at: Timestamp.now() },
+        { role: "assistant", content: cancelMsg, at: Timestamp.now() },
+      ]);
+      await inboxDoc.ref.update({ intent: "event_wizard_cancelled" });
+      return;
+    }
+    eventMode = true;
+    await setEventCreation(db, uid, null);
+  }
+
   const [history, members] = await Promise.all([
     loadConversation(db, uid),
     loadMemberDirectory(db, uid),
@@ -328,9 +576,16 @@ export async function processMessage(deps: ProcessMessageDeps): Promise<void> {
     },
     history,
     members,
+    pendingAction: pending,
+    eventMode,
   });
 
-  const reply = await runClaude(body, contextBlock);
+  const rawReply = await runClaude(claudeBody, contextBlock);
+  const { reply, action } = parseActionMarker(rawReply);
+
+  if (action) {
+    await setPendingAction(db, uid, action);
+  }
 
   await appendTurns(db, uid, [
     { role: "user", content: body, at: Timestamp.now() },
@@ -343,8 +598,10 @@ export async function processMessage(deps: ProcessMessageDeps): Promise<void> {
     phone,
     chatId,
     body: reply,
-    type: "bot_reply",
+    type: action ? "action_proposed" : "bot_reply",
   });
 
-  await inboxDoc.ref.update({ intent: "claude_reply" });
+  await inboxDoc.ref.update({
+    intent: action ? `action_proposed:${action.kind}` : "claude_reply",
+  });
 }
