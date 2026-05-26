@@ -23,18 +23,29 @@ class MiniSpeakerCard extends StatelessWidget {
               border: Border.all(color: AppColors.cardBorder),
               borderRadius: BorderRadius.circular(8),
             ),
-            padding: const EdgeInsets.all(6),
+            clipBehavior: Clip.antiAlias,
             alignment: Alignment.center,
-            child: Text(
-              speaker.name,
-              textAlign: TextAlign.center,
-              maxLines: 3,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(
-                fontSize: 9,
-                color: AppColors.inkSubtle,
-              ),
-            ),
+            child: speaker.imageUrl != null
+                ? Image.asset(
+                    speaker.imageUrl!,
+                    fit: BoxFit.cover,
+                    width: double.infinity,
+                    height: double.infinity,
+                    alignment: Alignment.topCenter,
+                  )
+                : Padding(
+                    padding: const EdgeInsets.all(6),
+                    child: Text(
+                      speaker.name,
+                      textAlign: TextAlign.center,
+                      maxLines: 3,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontSize: 9,
+                        color: AppColors.inkSubtle,
+                      ),
+                    ),
+                  ),
           ),
           const SizedBox(height: 6),
           Text(

@@ -23,43 +23,38 @@ class SpeakerCard extends StatelessWidget {
         children: [
           AspectRatio(
             aspectRatio: 1,
-            child: Container(
-              decoration: BoxDecoration(
-                color: AppColors.surfaceTint,
-                borderRadius: BorderRadius.circular(8),
-              ),
-              alignment: Alignment.center,
-              child: Padding(
-                padding: const EdgeInsets.all(8),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    const Icon(
-                      Icons.image_outlined,
-                      color: AppColors.inkSubtle,
-                      size: 22,
-                    ),
-                    const SizedBox(height: 6),
-                    Text(
-                      'portrait · ${speaker.name}',
-                      textAlign: TextAlign.center,
-                      style: const TextStyle(
-                        fontSize: 11,
-                        color: AppColors.inkSubtle,
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(8),
+              child: speaker.imageUrl != null
+                  ? Image.asset(
+                      speaker.imageUrl!,
+                      fit: BoxFit.cover,
+                      alignment: Alignment.topCenter,
+                    )
+                  : Container(
+                      color: AppColors.surfaceTint,
+                      alignment: Alignment.center,
+                      padding: const EdgeInsets.all(8),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Icon(
+                            Icons.image_outlined,
+                            color: AppColors.inkSubtle,
+                            size: 22,
+                          ),
+                          const SizedBox(height: 6),
+                          Text(
+                            'portrait · ${speaker.name}',
+                            textAlign: TextAlign.center,
+                            style: const TextStyle(
+                              fontSize: 11,
+                              color: AppColors.inkSubtle,
+                            ),
+                          ),
+                        ],
                       ),
                     ),
-                    const SizedBox(height: 2),
-                    const Text(
-                      'at camera-shy',
-                      style: TextStyle(
-                        fontSize: 10,
-                        color: AppColors.inkSubtle,
-                        fontStyle: FontStyle.italic,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
             ),
           ),
           const SizedBox(height: 14),

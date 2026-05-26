@@ -5,7 +5,7 @@
   "private": true,
   "scripts": {
     "build:flutter": "flutter build web --release",
-    "build:hosting": "rm -rf dist && mkdir -p dist && cp -r landing/. dist/ && npm run build:flutter && cp -r build/web dist/app",
+    "build:hosting": "npm run build:flutter",
     "deploy": "firebase deploy",
     "deploy:hosting": "firebase deploy --only hosting",
     "deploy:functions": "firebase deploy --only functions",

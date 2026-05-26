@@ -1,3 +1,5 @@
+import 'package:cloud_functions/cloud_functions.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 
@@ -12,7 +14,7 @@ import '../widgets/mini_speaker_card.dart';
 import '../widgets/status_pill.dart';
 import '../widgets/user_avatar_chip.dart';
 
-class WelcomeScreen extends StatelessWidget {
+class WelcomeScreen extends StatefulWidget {
   const WelcomeScreen({
     super.key,
     this.userName = 'Léa',
@@ -23,12 +25,139 @@ class WelcomeScreen extends StatelessWidget {
   final String inviteCode;
 
   @override
+  State<WelcomeScreen> createState() => _WelcomeScreenState();
+}
+
+class _WelcomeScreenState extends State<WelcomeScreen> {
+  bool _exchanging = false;
+  String? _authError;
+  late String _displayName;
+
+  @override
+  void initState() {
+    super.initState();
+    _displayName = widget.userName;
+
+    final uri = Uri.base;
+    final code = uri.queryParameters['code'];
+    final ldErr = uri.queryParameters['error'];
+
+    if (ldErr != null) {
+      _authError = 'LinkedIn returned $ldErr';
+      return;
+    }
+    if (code != null && code.isNotEmpty) {
+      _exchanging = true;
+      WidgetsBinding.instance.addPostFrameCallback((_) => _exchange(code));
+    } else {
+      // No code — check existing Firebase Auth session
+      final user = FirebaseAuth.instance.currentUser;
+      if (user != null) {
+        _displayName = user.displayName?.split(' ').first ?? widget.userName;
+      }
+    }
+  }
+
+  Future<void> _exchange(String code) async {
+    try {
+      final uri = Uri.base;
+      // Must byte-match the redirect_uri sent on the initial /authorization
+      // request — invite_screen.dart now uses `${origin}/welcome`.
+      final redirectUri = '${uri.origin}/welcome';
+
+      final callable = FirebaseFunctions.instanceFor(region: 'europe-central2')
+          .httpsCallable('linkedinSignIn');
+      final res = await callable.call(<String, String>{
+        'code': code,
+        'redirectUri': redirectUri,
+      });
+
+      final data = Map<String, dynamic>.from(res.data as Map);
+      final token = data['customToken'] as String?;
+      if (token == null) {
+        if (!mounted) return;
+        setState(() {
+          _exchanging = false;
+          _authError = 'No custom token returned.';
+        });
+        return;
+      }
+
+      final cred = await FirebaseAuth.instance.signInWithCustomToken(token);
+      if (!mounted) return;
+      setState(() {
+        _exchanging = false;
+        _displayName = cred.user?.displayName?.split(' ').first ?? widget.userName;
+      });
+    } on FirebaseFunctionsException catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _exchanging = false;
+        _authError = 'Sign-in failed: ${e.message ?? e.code}';
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _exchanging = false;
+        _authError = 'Sign-in failed: $e';
+      });
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
+    if (_exchanging) {
+      return const Scaffold(
+        backgroundColor: AppColors.background,
+        body: Center(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              SizedBox(
+                width: 28,
+                height: 28,
+                child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.accent),
+              ),
+              SizedBox(height: 16),
+              Text('Signing you in…',
+                  style: TextStyle(color: AppColors.inkMuted, fontSize: 14)),
+            ],
+          ),
+        ),
+      );
+    }
+    if (_authError != null) {
+      return Scaffold(
+        backgroundColor: AppColors.background,
+        body: Center(
+          child: Padding(
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  _authError!,
+                  style: const TextStyle(color: Colors.red, fontSize: 14),
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 24),
+                TextButton(
+                  onPressed: () =>
+                      Navigator.of(context).pushReplacementNamed('/in'),
+                  child: const Text('Back to sign in'),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
+
     final width = MediaQuery.sizeOf(context).width;
     final isCompact = width < 940;
 
     return AppScaffold(
-      topBarTrailing: UserAvatarChip(name: userName),
+      topBarTrailing: UserAvatarChip(name: _displayName),
       child: Padding(
         padding: EdgeInsets.symmetric(horizontal: isCompact ? 20 : 40),
         child: Padding(
@@ -37,7 +166,7 @@ class WelcomeScreen extends StatelessWidget {
               ? Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    _WelcomeBlock(userName: userName, inviteCode: inviteCode),
+                    _WelcomeBlock(userName: _displayName, inviteCode: widget.inviteCode),
                     const SizedBox(height: 56),
                     const _MatchedHumansBlock(),
                   ],
@@ -45,7 +174,7 @@ class WelcomeScreen extends StatelessWidget {
               : Row(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Expanded(child: _WelcomeBlock(userName: userName, inviteCode: inviteCode)),
+                    Expanded(child: _WelcomeBlock(userName: _displayName, inviteCode: widget.inviteCode)),
                     const SizedBox(width: 48),
                     const Expanded(child: _MatchedHumansBlock()),
                   ],

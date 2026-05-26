@@ -3,11 +3,51 @@ import '../models/matched_human.dart';
 import '../models/speaker.dart';
 
 const sampleSpeakers = <Speaker>[
-  Speaker(name: 'Yann LeCun', role: 'AI · KEYNOTE'),
-  Speaker(name: 'Bernard Arnault', role: 'LVMH · FIRESIDE'),
-  Speaker(name: 'Christel Heydemann', role: 'ORANGE · PANEL'),
-  Speaker(name: 'Shantanu Narayen', role: 'ADOBE · KEYNOTE'),
-  Speaker(name: 'Henna Virkkunen', role: 'EU COMMISSION'),
+  Speaker(
+    name: 'Bernard Arnault',
+    role: 'LVMH · FIRESIDE',
+    imageUrl: 'assets/speakers/arnault.jpg',
+  ),
+  Speaker(
+    name: 'Jensen Huang',
+    role: 'NVIDIA · KEYNOTE',
+    imageUrl: 'assets/speakers/huang.jpg',
+  ),
+  Speaker(
+    name: 'Yann LeCun',
+    role: 'AI · KEYNOTE',
+    imageUrl: 'assets/speakers/lecun.jpg',
+  ),
+  Speaker(
+    name: 'Shantanu Narayen',
+    role: 'ADOBE · KEYNOTE',
+    imageUrl: 'assets/speakers/narayen.jpg',
+  ),
+  Speaker(
+    name: 'Léon Marchand',
+    role: 'LVMH · AMBASSADOR',
+    imageUrl: 'assets/speakers/marchand.jpg',
+  ),
+  Speaker(
+    name: 'Christel Heydemann',
+    role: 'ORANGE · PANEL',
+    imageUrl: 'assets/speakers/heydemann.jpg',
+  ),
+  Speaker(
+    name: 'Roland Busch',
+    role: 'SIEMENS · KEYNOTE',
+    imageUrl: 'assets/speakers/busch.jpg',
+  ),
+  Speaker(
+    name: 'Henna Virkkunen',
+    role: 'EU COMMISSION',
+    imageUrl: 'assets/speakers/virkkunen.jpg',
+  ),
+  Speaker(
+    name: 'Octave Klaba',
+    role: 'OVHCLOUD · FIRESIDE',
+    imageUrl: 'assets/speakers/klaba.jpg',
+  ),
 ];
 
 const sampleAttendees = <Attendee>[

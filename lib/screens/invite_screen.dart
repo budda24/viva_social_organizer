@@ -119,7 +119,10 @@ class _SignInBlockState extends State<_SignInBlock> {
       // with LinkedIn — it uses HTTP Basic auth, LinkedIn requires the
       // secret in the form body).
       final origin = Uri.base.origin;
-      final redirectUri = '$origin/auth/linkedin/callback';
+      // Redirect straight to /welcome — WelcomeScreen reads the `code` from
+      // the URL on mount and runs the OAuth exchange before rendering the
+      // welcome UI. Eliminates the intermediate /auth/linkedin/callback page.
+      final redirectUri = '$origin/welcome';
       final state = _randomState();
 
       final authUrl = Uri.parse(_kLinkedInAuthEndpoint).replace(

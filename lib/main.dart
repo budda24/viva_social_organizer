@@ -28,17 +28,33 @@ class VivaTribeApp extends StatelessWidget {
       title: 'Viva Tribe · VivaTech 2026',
       debugShowCheckedModeBanner: false,
       theme: buildAppTheme(),
+      // onGenerateRoute instead of `routes:` so nested paths like
+      // `/auth/linkedin/callback` resolve to a single screen without
+      // Flutter trying to build an intermediate `/auth` and `/auth/linkedin`
+      // stack (which falls back to `/` when those segments aren't registered).
       initialRoute: '/',
-      routes: {
-        '/': (_) => const LandingScreen(),
-        '/in': (_) => const InviteScreen(),
-        '/auth/linkedin/callback': (_) => const LinkedInCallbackScreen(),
-        '/welcome': (context) {
-          final args = ModalRoute.of(context)?.settings.arguments;
-          return WelcomeScreen(
-            inviteCode: args is String ? args : 'VIVA-26-LK7',
-          );
-        },
+      onGenerateRoute: (settings) {
+        final name = settings.name ?? '/';
+        // Strip any query string for matching — Flutter passes the raw URL.
+        final path = name.split('?').first;
+        switch (path) {
+          case '/':
+            return MaterialPageRoute(builder: (_) => const LandingScreen());
+          case '/in':
+            return MaterialPageRoute(builder: (_) => const InviteScreen());
+          case '/auth/linkedin/callback':
+            return MaterialPageRoute(builder: (_) => const LinkedInCallbackScreen());
+          case '/welcome':
+            final args = settings.arguments;
+            return MaterialPageRoute(
+              builder: (_) => WelcomeScreen(
+                inviteCode: args is String ? args : 'VIVA-26-LK7',
+              ),
+            );
+          default:
+            // Unknown path — show landing instead of a Flutter error screen.
+            return MaterialPageRoute(builder: (_) => const LandingScreen());
+        }
       },
     );
   }
