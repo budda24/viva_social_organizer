@@ -220,26 +220,31 @@ async function handleStart(args: {
       };
     }
 
-    // Bind chat and kick off the scripted onboarding flow immediately —
-    // first question goes out as the welcome message, user's next reply
-    // is the answer. The bot brain's onboarding state machine takes over
-    // from there.
+    // Bind chat and mark onboarding complete — LinkedIn login is the
+    // approved-membership gate, so we skip the goal/energy questions and
+    // greet with the command menu instead. The bot brain treats step=complete
+    // as "skip onboarding, go straight to Claude".
     tx.update(userRef, {
       telegramChatId: chatId,
       telegramUsername: username ?? null,
       telegramDisplayName: displayName ?? null,
       telegramBoundAt: FieldValue.serverTimestamp(),
-      "onboarding.step": "ask_goal",
-      "onboarding.startedAt": FieldValue.serverTimestamp(),
+      "onboarding.step": "complete",
+      "onboarding.completedAt": FieldValue.serverTimestamp(),
     });
 
     const greetingName =
       (userSnap.data()?.displayName as string | undefined) ?? displayName ?? "there";
     const reply =
-      `Welcome ${greetingName}! I'm Tribu — I match you with humans at VivaTech.\n\n` +
-      "2 quick questions then you're set.\n\n" +
-      "1/2 — what's your goal at VivaTech? One line. Like \"meet European AI VCs\", " +
-      "\"sell to enterprise CFOs\", or \"find a co-founder\".";
+      `Welcome ${greetingName}! I'm Tribu — I help you meet the right humans at VivaTech.\n\n` +
+      "Here's what I can do:\n" +
+      "• find me a buddy — someone to explore VivaTech with\n" +
+      "• find me <topic> — specific people (e.g. \"find me a climate VC\")\n" +
+      "• create event — propose a micro-event (I'll ping everyone)\n" +
+      "• who is here — see active members\n" +
+      "• free for 30 — set your availability\n" +
+      "• help — see this menu again\n" +
+      "• stop — opt out";
     tx.set(db.collection("whatsappOutbox").doc(), {
       recipientType: "individual",
       recipientUid: uid,

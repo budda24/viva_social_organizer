@@ -143,6 +143,13 @@ export const linkedinSignIn = onCall(
     // 4. Mirror identity into users/{uid}. Same shape as bootstrapUserProfile
     //    so anything downstream (member directory, rules) sees the user even
     //    before redeemInviteCode flips them to "invited".
+    //
+    //    Also kick off the async enrichment worker for first-time sign-ups by
+    //    setting enrichment.status = "pending". The worker (bot/src/enrich.ts)
+    //    picks these up, web-searches the person from name/email/linkedinId,
+    //    and writes back enriched bio/topics/company/matchSignals — those are
+    //    the fields the bot's buddy-matching uses. `linkedinId` mirrors
+    //    `linkedinSub` so the worker (which reads `linkedinId`) finds it.
     const db = getFirestore();
     const userRef = db.doc(`users/${uid}`);
     const snap = await userRef.get();
@@ -152,21 +159,35 @@ export const linkedinSignIn = onCall(
       photoUrl: userInfo.picture ?? null,
       signInProvider: "linkedin",
       linkedinSub: userInfo.sub,
+      linkedinId: userInfo.sub,
     };
     if (!snap.exists) {
+      // PROTOTYPE: auto-approve LinkedIn signups so they immediately show in
+      // the directory + can read other approved members. For production-style
+      // gated approval (Franek vets each application), change this to
+      // "signed_in" and have an admin flip it to "approved" manually.
       await userRef.set({
         uid,
         ...profile,
         role: "member",
-        status: "signed_in",
+        status: "approved",
         createdAt: FieldValue.serverTimestamp(),
         lastLoginAt: FieldValue.serverTimestamp(),
+        enrichment: { status: "pending" },
       });
     } else {
-      await userRef.update({
+      // Existing user: refresh identity but don't disturb any in-progress or
+      // completed enrichment. Only seed enrichment.status if the field is
+      // entirely absent (legacy users created before this worker existed).
+      const data = snap.data() ?? {};
+      const updates: Record<string, unknown> = {
         ...profile,
         lastLoginAt: FieldValue.serverTimestamp(),
-      });
+      };
+      if (!data.enrichment || typeof data.enrichment !== "object") {
+        updates.enrichment = { status: "pending" };
+      }
+      await userRef.update(updates);
     }
 
     // 5. Mint a Firebase custom token the client uses with signInWithCustomToken.

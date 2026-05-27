@@ -28,6 +28,9 @@ export interface UserDocLike {
   displayName?: string;
   goal?: string;
   energy?: "1on1" | "group" | "both";
+  // "linkedin" means they signed in on the website via LinkedIn OIDC.
+  // Bots short-circuit onboarding for these — LinkedIn is the approval gate.
+  signInProvider?: string;
   // Background enrichment populates these (NOT asked):
   enrichment?: {
     status?: "pending" | "running" | "complete" | "failed";
@@ -97,6 +100,25 @@ export async function runOnboardingStep(
       { merge: true }
     );
     return { handled: true, reply: OPTED_OUT };
+  }
+
+  // LinkedIn login is the approval gate — these users skip the 2-question
+  // onboarding entirely and go straight to Claude with the command menu
+  // they got from /start (or that Claude returns on unclear input).
+  // Mark onboarding.step = complete idempotently so future turns also skip.
+  if (userDoc.signInProvider === "linkedin") {
+    if (step !== "complete") {
+      await userRef.set(
+        {
+          onboarding: {
+            step: "complete",
+            completedAt: FieldValue.serverTimestamp(),
+          },
+        },
+        { merge: true }
+      );
+    }
+    return { handled: false, reply: "" };
   }
 
   if (step === "complete") {

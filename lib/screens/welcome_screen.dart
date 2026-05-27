@@ -1,7 +1,10 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:web/web.dart' as web;
 
 import '../config/channel_links.dart';
 import '../data/sample_data.dart';
@@ -9,7 +12,6 @@ import '../theme/app_colors.dart';
 import '../theme/app_theme.dart';
 import '../widgets/app_scaffold.dart';
 import '../widgets/chat_buttons.dart';
-import '../widgets/matched_human_row.dart';
 import '../widgets/mini_speaker_card.dart';
 import '../widgets/status_pill.dart';
 import '../widgets/user_avatar_chip.dart';
@@ -32,6 +34,8 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
   bool _exchanging = false;
   String? _authError;
   late String _displayName;
+  String? _email;
+  String? _photoUrl;
 
   @override
   void initState() {
@@ -42,20 +46,47 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
     final code = uri.queryParameters['code'];
     final ldErr = uri.queryParameters['error'];
 
+    // Strip ?code=…&state=… from the URL bar IMMEDIATELY so a page refresh
+    // doesn't replay the (one-time-use) auth code and get a LinkedIn 400.
+    // Done before any awaits to win the race against the user hitting refresh.
+    if (kIsWeb && (code != null || ldErr != null)) {
+      _stripAuthQuery();
+    }
+
     if (ldErr != null) {
       _authError = 'LinkedIn returned $ldErr';
       return;
     }
+
+    // Already-signed-in path: refresh after a successful login, or arrived
+    // here via top-bar nav. Skip the (now-stale) code exchange entirely.
+    final existing = FirebaseAuth.instance.currentUser;
+    if (existing != null) {
+      _populateFromUser(existing);
+      return;
+    }
+
     if (code != null && code.isNotEmpty) {
       _exchanging = true;
       WidgetsBinding.instance.addPostFrameCallback((_) => _exchange(code));
-    } else {
-      // No code — check existing Firebase Auth session
-      final user = FirebaseAuth.instance.currentUser;
-      if (user != null) {
-        _displayName = user.displayName?.split(' ').first ?? widget.userName;
-      }
     }
+  }
+
+  void _stripAuthQuery() {
+    // Replace the URL in browser history without reloading the page —
+    // keeps the /welcome path but drops the OAuth query params.
+    try {
+      web.window.history.replaceState(null, '', '/welcome');
+    } catch (_) {
+      // Older browsers / strange embeds — best-effort, OK to ignore.
+    }
+  }
+
+  void _populateFromUser(User? user) {
+    if (user == null) return;
+    _displayName = user.displayName?.split(' ').first ?? widget.userName;
+    _email = user.email;
+    _photoUrl = user.photoURL;
   }
 
   Future<void> _exchange(String code) async {
@@ -83,11 +114,25 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
         return;
       }
 
+      // The function also returns the LinkedIn profile snapshot, used as the
+      // first-paint identity if the FirebaseAuth user takes a moment to
+      // settle after signInWithCustomToken.
+      final profile = data['profile'] is Map
+          ? Map<String, dynamic>.from(data['profile'] as Map)
+          : const <String, dynamic>{};
+
       final cred = await FirebaseAuth.instance.signInWithCustomToken(token);
       if (!mounted) return;
       setState(() {
         _exchanging = false;
-        _displayName = cred.user?.displayName?.split(' ').first ?? widget.userName;
+        _populateFromUser(cred.user);
+        // Fallbacks if FirebaseAuth user fields are unexpectedly empty.
+        _email ??= profile['email'] as String?;
+        _photoUrl ??= profile['picture'] as String?;
+        if (_displayName == widget.userName) {
+          final n = profile['name'] as String?;
+          if (n != null && n.isNotEmpty) _displayName = n.split(' ').first;
+        }
       });
     } on FirebaseFunctionsException catch (e) {
       if (!mounted) return;
@@ -157,7 +202,7 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
     final isCompact = width < 940;
 
     return AppScaffold(
-      topBarTrailing: UserAvatarChip(name: _displayName),
+      topBarTrailing: UserAvatarChip(name: _displayName, avatarUrl: _photoUrl),
       child: Padding(
         padding: EdgeInsets.symmetric(horizontal: isCompact ? 20 : 40),
         child: Padding(
@@ -166,7 +211,12 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
               ? Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    _WelcomeBlock(userName: _displayName, inviteCode: widget.inviteCode),
+                    _WelcomeBlock(
+                      userName: _displayName,
+                      email: _email,
+                      photoUrl: _photoUrl,
+                      inviteCode: widget.inviteCode,
+                    ),
                     const SizedBox(height: 56),
                     const _MatchedHumansBlock(),
                   ],
@@ -174,7 +224,14 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
               : Row(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Expanded(child: _WelcomeBlock(userName: _displayName, inviteCode: widget.inviteCode)),
+                    Expanded(
+                      child: _WelcomeBlock(
+                        userName: _displayName,
+                        email: _email,
+                        photoUrl: _photoUrl,
+                        inviteCode: widget.inviteCode,
+                      ),
+                    ),
                     const SizedBox(width: 48),
                     const Expanded(child: _MatchedHumansBlock()),
                   ],
@@ -186,10 +243,17 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
 }
 
 class _WelcomeBlock extends StatelessWidget {
-  const _WelcomeBlock({required this.userName, required this.inviteCode});
+  const _WelcomeBlock({
+    required this.userName,
+    required this.inviteCode,
+    this.email,
+    this.photoUrl,
+  });
 
   final String userName;
   final String inviteCode;
+  final String? email;
+  final String? photoUrl;
 
   Future<void> _open(Uri url) async {
     await launchUrl(url, mode: LaunchMode.externalApplication);
@@ -205,14 +269,49 @@ class _WelcomeBlock extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(
-          'WELCOME, ${userName.toUpperCase()}',
-          style: const TextStyle(
-            fontSize: 11,
-            letterSpacing: 1.4,
-            color: AppColors.inkMuted,
-            fontWeight: FontWeight.w600,
-          ),
+        Row(
+          children: [
+            if (photoUrl != null && photoUrl!.isNotEmpty) ...[
+              ClipOval(
+                child: Image.network(
+                  photoUrl!,
+                  width: 36,
+                  height: 36,
+                  fit: BoxFit.cover,
+                  errorBuilder: (_, _, _) =>
+                      _AvatarFallback(name: userName, size: 36),
+                ),
+              ),
+              const SizedBox(width: 12),
+            ],
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'WELCOME, ${userName.toUpperCase()}',
+                    style: const TextStyle(
+                      fontSize: 11,
+                      letterSpacing: 1.4,
+                      color: AppColors.inkMuted,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  if (email != null && email!.isNotEmpty) ...[
+                    const SizedBox(height: 4),
+                    Text(
+                      email!,
+                      style: const TextStyle(
+                        fontSize: 12,
+                        color: AppColors.inkSubtle,
+                      ),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ],
         ),
         const SizedBox(height: 24),
         RichText(
@@ -290,44 +389,60 @@ class _WelcomeBlock extends StatelessWidget {
   }
 }
 
+class _AvatarFallback extends StatelessWidget {
+  const _AvatarFallback({required this.name, this.size = 36});
+
+  final String name;
+  final double size;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: size,
+      height: size,
+      decoration: const BoxDecoration(
+        color: AppColors.accentSoft,
+        shape: BoxShape.circle,
+      ),
+      alignment: Alignment.center,
+      child: Text(
+        name.isEmpty ? '?' : name.characters.first.toUpperCase(),
+        style: TextStyle(
+          color: AppColors.ink,
+          fontWeight: FontWeight.w600,
+          fontSize: size * 0.42,
+        ),
+      ),
+    );
+  }
+}
+
 class _MatchedHumansBlock extends StatelessWidget {
   const _MatchedHumansBlock();
 
   @override
   Widget build(BuildContext context) {
     final isCompact = MediaQuery.sizeOf(context).width < 540;
-
-    final header = Row(
-      children: const [
-        Flexible(
-          child: Text(
-            'YOUR FIRST 5 HUMANS',
-            style: TextStyle(
-              fontSize: 11,
-              letterSpacing: 1.4,
-              color: AppColors.inkMuted,
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-        ),
-        SizedBox(width: 12),
-        _AiMatchedChip(),
-        Spacer(),
-        StatusPill(label: '4 free now'),
-      ],
-    );
+    final stream = FirebaseFirestore.instance
+        .collection('events')
+        .where('status', whereIn: ['scheduled', 'live'])
+        .orderBy('startAt')
+        .limit(6)
+        .snapshots();
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        if (isCompact)
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: const [
-                  Text(
-                    'YOUR FIRST 5 HUMANS',
+        StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+          stream: stream,
+          builder: (context, snap) {
+            final docs = snap.data?.docs ?? const [];
+
+            final headerRow = Row(
+              children: [
+                const Flexible(
+                  child: Text(
+                    'UPCOMING EVENTS',
                     style: TextStyle(
                       fontSize: 11,
                       letterSpacing: 1.4,
@@ -335,50 +450,234 @@ class _MatchedHumansBlock extends StatelessWidget {
                       fontWeight: FontWeight.w600,
                     ),
                   ),
-                  SizedBox(width: 10),
-                  _AiMatchedChip(),
-                  Spacer(),
+                ),
+                const Spacer(),
+                if (docs.isNotEmpty)
+                  StatusPill(
+                    label: '${docs.length} scheduled',
+                  ),
+              ],
+            );
+
+            Widget body;
+            if (snap.connectionState == ConnectionState.waiting) {
+              body = const _EventsPlaceholder(
+                text: 'Loading events…',
+                showSpinner: true,
+              );
+            } else if (snap.hasError) {
+              body = _EventsPlaceholder(
+                text: 'Couldn\'t load events: ${snap.error}',
+                error: true,
+              );
+            } else if (docs.isEmpty) {
+              body = const _EventsPlaceholder(
+                text:
+                    'Nothing on the calendar yet. Members propose events by texting `create event` to the Tribu bot on Telegram or WhatsApp.',
+              );
+            } else {
+              body = Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  for (var i = 0; i < docs.length; i++) ...[
+                    _EventRow(index: i + 1, doc: docs[i]),
+                    if (i < docs.length - 1) const SizedBox(height: 10),
+                  ],
                 ],
-              ),
-              const SizedBox(height: 8),
-              const StatusPill(label: '4 free now'),
-            ],
-          )
-        else
-          header,
-        const SizedBox(height: 18),
-        for (var i = 0; i < sampleMatchedHumans.length; i++) ...[
-          MatchedHumanRow(index: i + 1, human: sampleMatchedHumans[i]),
-          if (i < sampleMatchedHumans.length - 1) const SizedBox(height: 10),
-        ],
+              );
+            }
+
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                if (isCompact)
+                  headerRow
+                else
+                  headerRow,
+                const SizedBox(height: 18),
+                body,
+              ],
+            );
+          },
+        ),
       ],
     );
   }
 }
 
-class _AiMatchedChip extends StatelessWidget {
-  const _AiMatchedChip();
+class _EventRow extends StatelessWidget {
+  const _EventRow({required this.index, required this.doc});
+
+  final int index;
+  final QueryDocumentSnapshot<Map<String, dynamic>> doc;
+
+  static const _emojiByKind = {
+    'breakfast': '🍳',
+    'coffee': '☕',
+    'lunch': '🥗',
+    'drinks': '🥂',
+    'dinner': '🍝',
+    'rooftop': '🌇',
+    'walk': '🚶',
+    'side-event': '🎟️',
+    'other': '📍',
+  };
+
+  @override
+  Widget build(BuildContext context) {
+    final d = doc.data();
+    final kind = (d['kind'] as String?) ?? 'other';
+    final title = (d['title'] as String?) ?? '(untitled)';
+    final hostName = (d['hostName'] as String?) ?? 'A member';
+    final neighborhood = (d['addressNeighborhood'] as String?) ?? '';
+    final addressFull = (d['addressFull'] as String?) ?? '';
+    final startAt = d['startAt'];
+    final when = startAt is Timestamp ? _formatParis(startAt.toDate()) : '';
+    final emoji = _emojiByKind[kind] ?? '📍';
+    final placeBits = [
+      addressFull.isNotEmpty ? addressFull : neighborhood,
+      'hosted by $hostName',
+    ].where((s) => s.isNotEmpty).join(' · ');
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+      decoration: BoxDecoration(
+        color: AppColors.cardBg,
+        border: Border.all(color: AppColors.cardBorder),
+        borderRadius: BorderRadius.circular(14),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          SizedBox(
+            width: 24,
+            child: Text(
+              index.toString().padLeft(2, '0'),
+              style: mono(
+                fontSize: 11,
+                color: AppColors.inkSubtle,
+                weight: FontWeight.w500,
+              ),
+            ),
+          ),
+          const SizedBox(width: 12),
+          Container(
+            width: 38,
+            height: 38,
+            decoration: const BoxDecoration(
+              color: AppColors.accentSoft,
+              shape: BoxShape.circle,
+            ),
+            alignment: Alignment.center,
+            child: Text(emoji, style: const TextStyle(fontSize: 18)),
+          ),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Wrap(
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  spacing: 10,
+                  runSpacing: 2,
+                  children: [
+                    Text(
+                      title,
+                      style: const TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                        color: AppColors.ink,
+                      ),
+                    ),
+                    if (when.isNotEmpty)
+                      Text(
+                        when.toUpperCase(),
+                        style: const TextStyle(
+                          fontSize: 10,
+                          color: AppColors.inkSubtle,
+                          letterSpacing: 1.3,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                  ],
+                ),
+                if (placeBits.isNotEmpty) ...[
+                  const SizedBox(height: 2),
+                  Text(
+                    placeBits,
+                    style: serif(
+                      fontSize: 14,
+                      weight: FontWeight.w400,
+                      style: FontStyle.italic,
+                      color: AppColors.inkMuted,
+                      height: 1.3,
+                      letterSpacing: -0.1,
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  static String _formatParis(DateTime dt) {
+    const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+    const months = [
+      'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+    ];
+    final l = dt.toLocal();
+    final dn = days[(l.weekday - 1).clamp(0, 6)];
+    final mn = months[(l.month - 1).clamp(0, 11)];
+    final hh = l.hour.toString().padLeft(2, '0');
+    final mm = l.minute.toString().padLeft(2, '0');
+    return '$dn ${l.day} $mn · $hh:$mm';
+  }
+}
+
+class _EventsPlaceholder extends StatelessWidget {
+  const _EventsPlaceholder({
+    required this.text,
+    this.showSpinner = false,
+    this.error = false,
+  });
+
+  final String text;
+  final bool showSpinner;
+  final bool error;
 
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+      padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 24),
       decoration: BoxDecoration(
-        color: AppColors.accentSoft,
-        borderRadius: BorderRadius.circular(999),
+        color: AppColors.cardBg,
+        border: Border.all(color: AppColors.cardBorder),
+        borderRadius: BorderRadius.circular(14),
       ),
-      child: const Row(
-        mainAxisSize: MainAxisSize.min,
+      child: Row(
         children: [
-          Icon(Icons.auto_awesome, color: AppColors.accent, size: 11),
-          SizedBox(width: 6),
-          Text(
-            'AI-MATCHED',
-            style: TextStyle(
-              fontSize: 10,
-              letterSpacing: 1.3,
-              color: AppColors.accent,
-              fontWeight: FontWeight.w600,
+          if (showSpinner) ...[
+            const SizedBox(
+              width: 16,
+              height: 16,
+              child: CircularProgressIndicator(
+                strokeWidth: 2,
+                color: AppColors.accent,
+              ),
+            ),
+            const SizedBox(width: 12),
+          ],
+          Expanded(
+            child: Text(
+              text,
+              style: TextStyle(
+                color: error ? Colors.red : AppColors.inkMuted,
+                fontSize: 13,
+              ),
             ),
           ),
         ],
@@ -386,3 +685,4 @@ class _AiMatchedChip extends StatelessWidget {
     );
   }
 }
+

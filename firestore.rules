@@ -15,16 +15,15 @@ service cloud.firestore {
       return isSignedIn() && request.auth.uid == uid;
     }
 
-    function isApproved() {
-      return isSignedIn() &&
-        exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
-        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.status == 'approved';
-    }
+    // PROTOTYPE: any signed-in user can read the public collections (users
+    // directory + events + RSVPs + their own buddy matches). The original
+    // status=='approved' gate was blocking testers whose user doc still had
+    // status='signed_in' from a pre-auto-approve sign-in. Writes stay
+    // server-only (Cloud Functions + bot use admin SDK which bypasses
+    // rules). Tighten back to isApproved() once invite/approval flow is live.
 
-    // users — approved members can read non-private fields; admin sees everything.
-    // All writes go through Cloud Functions.
     match /users/{uid} {
-      allow read: if isApproved() || isMe(uid) || isAdmin();
+      allow read: if isSignedIn();
       allow write: if false;
 
       // Phone, dietary, notLookingFor — owner + admin only.
@@ -38,17 +37,14 @@ service cloud.firestore {
       allow read, write: if false;
     }
 
-    // Events — approved members can read published events whose visibility allows them.
+    // Events — any signed-in user can read. Writes go through the bot's
+    // admin SDK (which bypasses rules) so no client-write path needed.
     match /events/{eventId} {
-      allow read: if isAdmin() ||
-        (isApproved() && resource.data.status == 'published' &&
-          (resource.data.visibility == 'all' ||
-           (resource.data.visibility == 'invited' &&
-            request.auth.uid in resource.data.invitedUids)));
+      allow read: if isSignedIn();
       allow write: if false;
 
       match /rsvps/{uid} {
-        allow read: if isAdmin() || isMe(uid) || isApproved();
+        allow read: if isSignedIn();
         allow write: if false;
       }
     }
@@ -62,7 +58,7 @@ service cloud.firestore {
 
     // Buddy matches — each party can read their own matches.
     match /buddyMatches/{mid} {
-      allow read: if isAdmin() || (isApproved() &&
+      allow read: if isAdmin() || (isSignedIn() &&
         (request.auth.uid == resource.data.uidA ||
          request.auth.uid == resource.data.uidB));
       allow write: if false;

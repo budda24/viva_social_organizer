@@ -29,7 +29,6 @@ class InviteScreen extends StatelessWidget {
     final isCompact = width < 940;
 
     return AppScaffold(
-      topBarTrailing: const _NotInvitedLink(),
       child: Padding(
         padding: EdgeInsets.symmetric(horizontal: isCompact ? 20 : 40),
         child: Padding(
@@ -53,36 +52,6 @@ class InviteScreen extends StatelessWidget {
                 ),
         ),
       ),
-    );
-  }
-}
-
-class _NotInvitedLink extends StatelessWidget {
-  const _NotInvitedLink();
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        const Text(
-          'Not invited?  ',
-          style: TextStyle(color: AppColors.inkMuted, fontSize: 13),
-        ),
-        InkWell(
-          onTap: () {},
-          child: const Text(
-            'How it works',
-            style: TextStyle(
-              color: AppColors.ink,
-              fontSize: 13,
-              fontWeight: FontWeight.w500,
-              decoration: TextDecoration.underline,
-              decorationColor: AppColors.ink,
-            ),
-          ),
-        ),
-      ],
     );
   }
 }

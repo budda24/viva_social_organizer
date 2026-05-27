@@ -6,6 +6,7 @@ import 'firebase_options.dart';
 import 'screens/invite_screen.dart';
 import 'screens/landing_screen.dart';
 import 'screens/linkedin_callback_screen.dart';
+import 'screens/members_screen.dart';
 import 'screens/welcome_screen.dart';
 import 'theme/app_theme.dart';
 
@@ -39,23 +40,58 @@ class VivaTribeApp extends StatelessWidget {
         final path = name.split('?').first;
         switch (path) {
           case '/':
-            return MaterialPageRoute(builder: (_) => const LandingScreen());
+            return _fadeThrough(settings, (_) => const LandingScreen());
           case '/in':
-            return MaterialPageRoute(builder: (_) => const InviteScreen());
+            return _fadeThrough(settings, (_) => const InviteScreen());
           case '/auth/linkedin/callback':
-            return MaterialPageRoute(builder: (_) => const LinkedInCallbackScreen());
+            return _fadeThrough(
+                settings, (_) => const LinkedInCallbackScreen());
           case '/welcome':
             final args = settings.arguments;
-            return MaterialPageRoute(
-              builder: (_) => WelcomeScreen(
+            return _fadeThrough(
+              settings,
+              (_) => WelcomeScreen(
                 inviteCode: args is String ? args : 'VIVA-26-LK7',
               ),
             );
+          case '/members':
+            return _fadeThrough(settings, (_) => const MembersScreen());
           default:
             // Unknown path — show landing instead of a Flutter error screen.
-            return MaterialPageRoute(builder: (_) => const LandingScreen());
+            return _fadeThrough(settings, (_) => const LandingScreen());
         }
       },
     );
   }
+}
+
+// Material 3 "fade through" transition — old screen fades out + drops slightly,
+// new screen fades in + rises slightly. Quick (260ms) and direction-agnostic,
+// which suits web where there's no physical left/right semantic.
+PageRoute<T> _fadeThrough<T>(RouteSettings settings, WidgetBuilder builder) {
+  return PageRouteBuilder<T>(
+    settings: settings,
+    pageBuilder: (context, anim, _) => builder(context),
+    transitionDuration: const Duration(milliseconds: 260),
+    reverseTransitionDuration: const Duration(milliseconds: 180),
+    transitionsBuilder: (context, anim, secondary, child) {
+      final curved = CurvedAnimation(parent: anim, curve: Curves.easeOutCubic);
+      final outgoing =
+          CurvedAnimation(parent: secondary, curve: Curves.easeInCubic);
+      final slideIn = Tween(begin: const Offset(0, 0.014), end: Offset.zero)
+          .animate(curved);
+      final slideOut = Tween(begin: Offset.zero, end: const Offset(0, -0.008))
+          .animate(outgoing);
+      return SlideTransition(
+        position: slideOut,
+        child: FadeTransition(
+          opacity: ReverseAnimation(outgoing),
+          child: FadeTransition(
+            opacity: curved,
+            child: SlideTransition(position: slideIn, child: child),
+          ),
+        ),
+      );
+    },
+  );
 }

@@ -35,12 +35,23 @@ interface EnrichmentInput {
   city?: string;
 }
 
+type Confidence = "high" | "medium" | "low" | "none";
+
 interface EnrichmentResult {
   bio: string;
   topics: string[];
   company?: string;
   recentActivity?: string;
   matchSignals?: string;
+  // Provenance — required so we can audit "where did this fact come from?"
+  // and so the UI can label verified vs. inferred fields.
+  confidence: Confidence;
+  linkedinUrl?: string;
+  sources: string[];
+  // The worker's own one-line explanation of why it thinks this is the right
+  // person (or why it couldn't be sure). Stored for transparency, not shown
+  // by default — useful when debugging a wrong-person attachment.
+  rationale?: string;
 }
 
 /**
@@ -55,24 +66,60 @@ function buildEnrichPrompt(input: EnrichmentInput): { user: string; systemAppend
 You are NOT Tribu right now. You are a research tool building a professional
 profile for matching at VivaTech Paris 2026.
 
-Search the public web for the person described below. Use WebSearch and
-WebFetch as needed. Combine the LinkedIn headline (if given) with public
-mentions: company website, blog posts, podcasts, conference talks, GitHub,
-papers. Do NOT fabricate. If you can't find something, leave the field
-empty rather than guessing.
+## ABSOLUTE PRIORITY: do not attach context to the wrong person
 
-Return ONLY a JSON object on the LAST line of your output, with this shape:
+The single most important failure mode here is **identity mismatch** — pulling
+someone else's bio because their name is similar. A common name like "John
+Smith" or "Sarah Lee" has hundreds of LinkedIn profiles. Attaching the wrong
+person's bio to a real member is far worse than attaching nothing.
+
+**Confidence rules — read carefully:**
+
+- **high**: You found a public LinkedIn profile whose displayed name matches
+  the verified name exactly AND at least one strong corroborating signal
+  matches (e.g. a personal website / GitHub / company page / conference
+  bio that names them in the same role). Email domain matching their
+  company website also counts.
+- **medium**: You found a likely LinkedIn profile match and one weaker signal
+  (a talk, a paper, a podcast mention) that aligns with the name.
+- **low**: You found mentions of someone with the name but no LinkedIn
+  profile to anchor identity, OR you found multiple LinkedIn profiles for
+  the name and can't pick between them.
+- **none**: You couldn't find them at all.
+
+**Strict gate**: if confidence is **low or none**, return empty strings /
+empty arrays for bio, topics, company, recentActivity, matchSignals. Do NOT
+guess. Do NOT pick the most plausible. The downstream code will store the
+empty result and we'd rather have a sparse profile than a wrong one.
+
+## Method
+
+Use WebSearch and WebFetch. Start by searching for the verified name plus
+a disambiguator (email domain if available, or "VivaTech" / "founder" /
+known location). Find their LinkedIn URL first — that anchors identity.
+Then triangulate with at least one other source before filling fields.
+
+Track every URL you fetched in the \`sources\` array so the human reviewing
+can verify.
+
+## Output
+
+Return ONLY a JSON object on the LAST line of your output. Schema:
 
 {
-  "bio": "one-line who they are professionally (max 140 chars)",
+  "confidence": "high" | "medium" | "low" | "none",
+  "linkedinUrl": "the LinkedIn URL you identified, or empty",
+  "sources": ["url1", "url2"],
+  "rationale": "one line on why you're confident (or why you're not)",
+  "bio": "one-line who they are professionally (max 140 chars), empty if confidence < medium",
   "topics": ["3 to 5", "interest", "tags"],
   "company": "current company if confidently known, else empty",
-  "recentActivity": "one short line on visible recent work (talk, paper, launch, etc.), else empty",
-  "matchSignals": "one short line on what kinds of people would be high-value for them to meet at VivaTech, else empty"
+  "recentActivity": "one short line on visible recent work, else empty",
+  "matchSignals": "one short line on who they would benefit from meeting at VivaTech, else empty"
 }
 
-Any preamble or explanation is fine, but the JSON object MUST be the last
-thing in your output, on its own line, parseable as-is.
+The JSON object MUST be the last thing in your output, on its own line,
+parseable as-is.
 `.trim();
 
   const lines: string[] = [];
@@ -143,8 +190,29 @@ function extractTrailingJson(output: string): EnrichmentResult | null {
   if (lastBrace === -1) return null;
   const candidate = trimmed.slice(lastBrace);
   try {
-    const parsed = JSON.parse(candidate);
+    const parsed = JSON.parse(candidate) as Record<string, unknown>;
     if (typeof parsed !== "object" || parsed == null) return null;
+
+    const rawConf = String(parsed.confidence ?? "").toLowerCase();
+    const confidence: Confidence =
+      rawConf === "high" || rawConf === "medium" || rawConf === "low"
+        ? (rawConf as Confidence)
+        : "none";
+
+    const sources = Array.isArray(parsed.sources)
+      ? (parsed.sources as unknown[])
+          .map((s) => String(s).trim())
+          .filter((s) => s.length > 0 && s.length < 500)
+          .slice(0, 10)
+      : [];
+
+    const linkedinUrl = parsed.linkedinUrl
+      ? String(parsed.linkedinUrl).slice(0, 300)
+      : undefined;
+    const rationale = parsed.rationale
+      ? String(parsed.rationale).slice(0, 300)
+      : undefined;
+
     return {
       bio: String(parsed.bio ?? "").slice(0, 200),
       topics: Array.isArray(parsed.topics)
@@ -157,10 +225,26 @@ function extractTrailingJson(output: string): EnrichmentResult | null {
       matchSignals: parsed.matchSignals
         ? String(parsed.matchSignals).slice(0, 200)
         : undefined,
+      confidence,
+      linkedinUrl,
+      sources,
+      rationale,
     };
   } catch {
     return null;
   }
+}
+
+// Minimum confidence we trust enough to publish enriched content into the
+// matchable profile. Below this we still record the audit trail (sources,
+// rationale, confidence) but leave bio/topics/etc. empty so we don't risk
+// showing wrong-person data in the directory or feeding it into match scoring.
+const MIN_PUBLISHABLE_CONFIDENCE: Confidence = "medium";
+
+function passesConfidenceGate(c: Confidence): boolean {
+  if (MIN_PUBLISHABLE_CONFIDENCE === "high") return c === "high";
+  if (MIN_PUBLISHABLE_CONFIDENCE === "medium") return c === "high" || c === "medium";
+  return c !== "none";
 }
 
 async function claimOneEnrichmentJob(
@@ -211,19 +295,38 @@ async function processOneEnrichment(
 
   try {
     const result = await runClaudeEnrich(input);
+    const publishable = passesConfidenceGate(result.confidence);
+
+    // Always persist provenance (confidence, sources, rationale, linkedinUrl)
+    // even when we don't publish the content — it's the audit trail. The
+    // matchable content fields (bio/topics/etc.) only flow through if the
+    // worker's confidence cleared the gate; otherwise they stay empty and the
+    // directory shows "Profile loading…" or "No bio yet" instead of risking
+    // wrong-person data.
     await doc.ref.update({
       "enrichment.status": "complete" as EnrichmentStatus,
-      "enrichment.bio": result.bio,
-      "enrichment.topics": result.topics,
-      "enrichment.company": result.company ?? null,
-      "enrichment.recentActivity": result.recentActivity ?? null,
-      "enrichment.matchSignals": result.matchSignals ?? null,
+      "enrichment.confidence": result.confidence,
+      "enrichment.linkedinUrl": result.linkedinUrl ?? null,
+      "enrichment.sources": result.sources,
+      "enrichment.rationale": result.rationale ?? null,
+      "enrichment.publishable": publishable,
+      "enrichment.bio": publishable ? result.bio : "",
+      "enrichment.topics": publishable ? result.topics : [],
+      "enrichment.company": publishable ? (result.company ?? null) : null,
+      "enrichment.recentActivity": publishable ? (result.recentActivity ?? null) : null,
+      "enrichment.matchSignals": publishable ? (result.matchSignals ?? null) : null,
       "enrichment.completedAt": FieldValue.serverTimestamp(),
       "enrichment.lastError": null,
     });
-    console.log(
-      `[enrich] complete uid=${doc.id} bio="${result.bio.slice(0, 60)}…" topics=${result.topics.join(",")}`
-    );
+    if (publishable) {
+      console.log(
+        `[enrich] published uid=${doc.id} confidence=${result.confidence} bio="${result.bio.slice(0, 60)}…" sources=${result.sources.length}`
+      );
+    } else {
+      console.log(
+        `[enrich] withheld uid=${doc.id} confidence=${result.confidence} (below ${MIN_PUBLISHABLE_CONFIDENCE} threshold) rationale="${(result.rationale ?? "").slice(0, 100)}"`
+      );
+    }
   } catch (e: unknown) {
     const message = e instanceof Error ? e.message : String(e);
     console.error(`[enrich] failed uid=${doc.id}: ${message}`);
