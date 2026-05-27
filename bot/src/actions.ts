@@ -88,20 +88,24 @@ function validateAction(raw: unknown): PendingAction | null {
     const kindEnum = (KIND_ENUM as readonly string[]).includes(o.kind_enum as string)
       ? (o.kind_enum as EventKind)
       : "other";
-    return {
+    // Build with only the keys that are present — Firestore rejects `undefined`
+    // values when this action is persisted as a pendingAction, so absent
+    // optionals must be omitted rather than set to undefined.
+    const action: CreateEventAction = {
       kind: "create_event",
       title: String(o.title).slice(0, 60),
       kind_enum: kindEnum,
       startAtISO: String(o.startAtISO),
-      addressNeighborhood:
-        typeof o.addressNeighborhood === "string" ? o.addressNeighborhood : undefined,
-      addressFull: typeof o.addressFull === "string" ? o.addressFull : undefined,
-      capacity:
-        typeof o.capacity === "number" && Number.isFinite(o.capacity)
-          ? Math.max(1, Math.floor(o.capacity))
-          : undefined,
-      description: typeof o.description === "string" ? o.description : undefined,
     };
+    if (typeof o.addressNeighborhood === "string") {
+      action.addressNeighborhood = o.addressNeighborhood;
+    }
+    if (typeof o.addressFull === "string") action.addressFull = o.addressFull;
+    if (typeof o.capacity === "number" && Number.isFinite(o.capacity)) {
+      action.capacity = Math.max(1, Math.floor(o.capacity));
+    }
+    if (typeof o.description === "string") action.description = o.description;
+    return action;
   }
   if (o.kind === "intro_buddy") {
     if (typeof o.targetUid !== "string" || !o.targetUid.trim()) return null;
