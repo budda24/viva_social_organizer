@@ -341,6 +341,13 @@ async function executeIntroBuddy(
   const { db, uid, userData } = deps;
   const sourceName = (userData.displayName as string | undefined) ?? "A member";
 
+  // Backstop: the directory now includes the requesting user (for prompt-cache
+  // stability), with self-exclusion enforced only by instruction. Guard here so
+  // a model slip can never actually ping someone to introduce them to themselves.
+  if (action.targetUid === uid) {
+    return { reply: `That one's you 🙂 — try \`find me a buddy\` for someone else.` };
+  }
+
   const targetSnap = await db.doc(`users/${action.targetUid}`).get();
   if (!targetSnap.exists) {
     return { reply: `Couldn't find that member. Try \`find me a buddy\` again.` };

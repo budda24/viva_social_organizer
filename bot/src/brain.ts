@@ -19,7 +19,7 @@
 
 import type { Firestore, QueryDocumentSnapshot } from "firebase-admin/firestore";
 import { FieldValue, Timestamp } from "firebase-admin/firestore";
-import { query } from "@anthropic-ai/claude-agent-sdk";
+import Anthropic from "@anthropic-ai/sdk";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -39,6 +39,9 @@ const HISTORY_LIMIT = 6;
 
 // Read once at module load — system prompt rarely changes mid-process.
 const BASE_SYSTEM_PROMPT = fs.readFileSync(CLAUDE_MD_PATH, "utf-8");
+
+// Reads ANTHROPIC_API_KEY from the environment.
+const anthropic = new Anthropic();
 
 type Provider = "twilio" | "telegram";
 
@@ -182,13 +185,9 @@ interface DirectoryMember {
   city: string;
 }
 
-async function loadMemberDirectory(
-  db: Firestore,
-  excludeUid: string
-): Promise<DirectoryMember[]> {
+async function loadMemberDirectory(db: Firestore): Promise<DirectoryMember[]> {
   const snap = await db.collection("users").where("status", "==", "approved").get();
   return snap.docs
-    .filter((d) => d.id !== excludeUid)
     .map((d) => {
       const u = d.data();
       const enr = (u.enrichment ?? {}) as Record<string, unknown>;
@@ -207,7 +206,51 @@ async function loadMemberDirectory(
         lookingFor: String(u.lookingFor ?? ""),
         city: String(u.city ?? ""),
       };
-    });
+    })
+    .sort((a, b) => a.uid.localeCompare(b.uid)); // stable order → byte-identical block → cacheable
+}
+
+// In-process directory cache. The directory is identical for every user and
+// changes slowly (new members, enrichment), so reading the whole users
+// collection on every message is pure waste — it was the throughput ceiling at
+// 1000-member scale (~1 read per member per message). Serve a cached snapshot
+// and refresh on a timer; stale-while-revalidate so messages never block on the
+// reload, and single-flight so a burst triggers one Firestore read, not N.
+const DIRECTORY_TTL_MS = Number(process.env.DIRECTORY_TTL_MS ?? 30_000);
+let directoryCache: { members: DirectoryMember[]; loadedAt: number } | null = null;
+let directoryInflight: Promise<DirectoryMember[]> | null = null;
+
+async function getMemberDirectory(db: Firestore): Promise<DirectoryMember[]> {
+  const isFresh =
+    directoryCache !== null && Date.now() - directoryCache.loadedAt < DIRECTORY_TTL_MS;
+
+  if (!isFresh && directoryInflight === null) {
+    directoryInflight = loadMemberDirectory(db)
+      .then((members) => {
+        directoryCache = { members, loadedAt: Date.now() };
+        return members;
+      })
+      .finally(() => {
+        directoryInflight = null;
+      });
+    // We have stale data to serve below, so don't let a background refresh
+    // failure surface as an unhandled rejection — we just keep the stale copy.
+    if (directoryCache !== null) directoryInflight.catch(() => {});
+  }
+
+  if (directoryCache !== null) return directoryCache.members; // fresh or stale-while-revalidate
+  return directoryInflight!; // first ever load — wait for it (errors propagate to caller)
+}
+
+// The shared, cacheable directory block — identical for every user so a single
+// cache entry serves the whole community within the 5-min window.
+function buildDirectoryBlock(members: DirectoryMember[]): string {
+  if (members.length === 0) {
+    return `## Member directory\n(empty — no other approved members yet; tell the user nobody else is here)`;
+  }
+  const lines = [`## Member directory (all approved members at VivaTech)`];
+  for (const m of members) lines.push(formatMemberLine(m));
+  return lines.join("\n");
 }
 
 async function appendTurns(
@@ -263,7 +306,6 @@ function buildContextBlock(args: {
   phone?: string;
   self: SelfContext;
   history: Turn[];
-  members: DirectoryMember[];
   pendingAction?: PendingAction;
   eventMode?: boolean;
 }): string {
@@ -301,6 +343,7 @@ function buildContextBlock(args: {
   lines.push(`Current Paris time: ${nowParis}`);
   lines.push(`Current ISO timestamp: ${new Date().toISOString()}`);
   lines.push(`User uid: ${args.uid}`);
+  lines.push(`(Never match or suggest this user to themselves — exclude uid ${args.uid} from results.)`);
   lines.push(`Channel: ${args.provider}`);
   if (args.phone) lines.push(`User phone: ${args.phone}`);
   if (args.displayName) lines.push(`User display name: ${args.displayName}`);
@@ -323,18 +366,6 @@ function buildContextBlock(args: {
     lines.push(`(Enrichment status: ${args.self.enrichmentStatus} — profile may still be filling in.)`);
   }
 
-  if (args.members.length > 0) {
-    lines.push(``);
-    lines.push(`## Member directory (other approved members at VivaTech)`);
-    for (const m of args.members) {
-      lines.push(formatMemberLine(m));
-    }
-  } else {
-    lines.push(``);
-    lines.push(`## Member directory`);
-    lines.push(`(empty — no other approved members yet; tell the user nobody else is here)`);
-  }
-
   if (args.pendingAction) {
     lines.push(``);
     lines.push(`## Pending action`);
@@ -354,31 +385,33 @@ function buildContextBlock(args: {
   return lines.join("\n");
 }
 
-async function runClaude(userMessage: string, contextBlock: string): Promise<string> {
-  const systemPrompt = `${BASE_SYSTEM_PROMPT}\n\n${contextBlock}`;
-
-  const result = query({
-    prompt: userMessage,
-    options: {
-      model: CLAUDE_MODEL,
-      systemPrompt,
-      allowedTools: [],
-      permissionMode: "bypassPermissions",
-      maxTurns: 1,
-      cwd: BOT_DIR,
-    },
+async function runClaude(
+  userMessage: string,
+  directoryBlock: string,
+  volatileBlock: string
+): Promise<string> {
+  // Prompt caching: the static system prompt and the shared member directory
+  // are byte-identical across users, so they're marked as cacheable prefixes
+  // (~10% read cost, much lower latency). Only the small per-request volatile
+  // block (time, self, history) is re-billed in full each call.
+  const result = await anthropic.messages.create({
+    model: CLAUDE_MODEL,
+    max_tokens: 400,
+    system: [
+      { type: "text", text: BASE_SYSTEM_PROMPT, cache_control: { type: "ephemeral" } },
+      { type: "text", text: directoryBlock, cache_control: { type: "ephemeral" } },
+      { type: "text", text: volatileBlock },
+    ],
+    messages: [{ role: "user", content: userMessage }],
   });
 
   let reply = "";
-  for await (const message of result) {
-    if (message.type !== "assistant") continue;
-    for (const block of message.message.content) {
-      if (block.type === "text") reply += block.text;
-    }
+  for (const block of result.content) {
+    if (block.type === "text") reply += block.text;
   }
 
   reply = reply.trim();
-  if (!reply) throw new Error("Claude Agent SDK returned no text content");
+  if (!reply) throw new Error("Claude returned no text content");
   return reply.length > MAX_REPLY_CHARS ? reply.slice(0, MAX_REPLY_CHARS) : reply;
 }
 
@@ -554,10 +587,11 @@ export async function processMessage(deps: ProcessMessageDeps): Promise<void> {
 
   const [history, members] = await Promise.all([
     loadConversation(db, uid),
-    loadMemberDirectory(db, uid),
+    getMemberDirectory(db),
   ]);
   const enrichment = (userData.enrichment ?? {}) as Record<string, unknown>;
-  const contextBlock = buildContextBlock({
+  const directoryBlock = buildDirectoryBlock(members);
+  const volatileBlock = buildContextBlock({
     uid,
     provider,
     displayName,
@@ -575,12 +609,11 @@ export async function processMessage(deps: ProcessMessageDeps): Promise<void> {
       enrichmentStatus: enrichment.status as string | undefined,
     },
     history,
-    members,
     pendingAction: pending,
     eventMode,
   });
 
-  const rawReply = await runClaude(claudeBody, contextBlock);
+  const rawReply = await runClaude(claudeBody, directoryBlock, volatileBlock);
   const { reply, action } = parseActionMarker(rawReply);
 
   if (action) {

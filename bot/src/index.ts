@@ -21,7 +21,15 @@ const ENRICH_POLL_INTERVAL_MS = Number(process.env.ENRICH_POLL_INTERVAL_MS ?? 50
 const MAX_CONCURRENT = Number(process.env.MAX_CONCURRENT ?? 5);
 const MAX_ENRICH_CONCURRENT = Number(process.env.MAX_ENRICH_CONCURRENT ?? 2);
 const LEASE_MS = 60_000;
+const MAX_ATTEMPTS = Number(process.env.MAX_ATTEMPTS ?? 6);
+const REQUEUE_BASE_MS = 1_000;
+const REQUEUE_CAP_MS = 30_000;
 const HOST_ID = process.env.BOT_HOST_ID ?? `laptop-${Math.random().toString(36).slice(2, 8)}`;
+
+// Transient API conditions worth retrying rather than failing: rate limits (429)
+// and overloads (529). Matched against the thrown error message so an overload
+// burst becomes delay, not lost replies.
+const TRANSIENT_RE = /\b(429|529)\b|rate limit|input tokens per minute|overloaded/i;
 
 const sa = process.env.GOOGLE_APPLICATION_CREDENTIALS;
 if (sa && fs.existsSync(sa)) {
@@ -63,6 +71,10 @@ async function claimOne(): Promise<FirebaseFirestore.QueryDocumentSnapshot | nul
       const snap = await tx.get(doc.ref);
       const d = snap.data();
       if (!d || d.status !== "pending") return false;
+      // Honour backoff set by a previous transient failure — leave it pending
+      // until its nextAttemptAt so we don't immediately re-slam a rate limit.
+      const next = d.nextAttemptAt as Timestamp | undefined;
+      if (next && next.toMillis() > Date.now()) return false;
       tx.update(doc.ref, {
         status: "processing",
         leasedBy: HOST_ID,
@@ -86,11 +98,29 @@ async function processOne(doc: FirebaseFirestore.QueryDocumentSnapshot): Promise
     console.log(`[bot] processed ${doc.id} (uid=${doc.data().uid}, inFlight=${inFlight.size})`);
   } catch (e: unknown) {
     const message = e instanceof Error ? e.message : String(e);
-    console.error(`[bot] failed ${doc.id}: ${message}`);
-    await doc.ref.update({
-      status: "failed",
-      lastError: message,
-    });
+    const attempts = Number(doc.data().attempts ?? 0);
+    if (TRANSIENT_RE.test(message) && attempts < MAX_ATTEMPTS) {
+      // Overload/rate-limit → back off and requeue instead of dropping the
+      // message. Exponential backoff with jitter; clears the lease so any
+      // worker can pick it up once nextAttemptAt passes.
+      const backoff =
+        Math.min(REQUEUE_BASE_MS * 2 ** attempts, REQUEUE_CAP_MS) +
+        Math.floor(Math.random() * REQUEUE_BASE_MS);
+      console.warn(`[bot] requeue ${doc.id} (attempt ${attempts}, +${backoff}ms): ${message}`);
+      await doc.ref.update({
+        status: "pending",
+        nextAttemptAt: Timestamp.fromMillis(Date.now() + backoff),
+        leasedBy: FieldValue.delete(),
+        leaseExpiresAt: FieldValue.delete(),
+        lastError: message,
+      });
+    } else {
+      console.error(`[bot] failed ${doc.id}: ${message}`);
+      await doc.ref.update({
+        status: "failed",
+        lastError: message,
+      });
+    }
   } finally {
     inFlight.delete(doc.id);
   }

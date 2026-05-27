@@ -28,7 +28,7 @@ import "./env.js";
 import { initializeApp, applicationDefault } from "firebase-admin/app";
 import { getFirestore, FieldValue, Timestamp } from "firebase-admin/firestore";
 
-const MAX_SAFETY_COUNT = 200;
+const MAX_SAFETY_COUNT = 1200;
 
 function arg(name: string, fallback?: string): string | undefined {
   const i = process.argv.indexOf(`--${name}`);
