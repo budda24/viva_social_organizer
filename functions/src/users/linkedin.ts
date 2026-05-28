@@ -161,6 +161,7 @@ export const linkedinSignIn = onCall(
       linkedinSub: userInfo.sub,
       linkedinId: userInfo.sub,
     };
+    const existingData = snap.data() ?? {};
     if (!snap.exists) {
       // PROTOTYPE: auto-approve LinkedIn signups so they immediately show in
       // the directory + can read other approved members. For production-style
@@ -179,18 +180,31 @@ export const linkedinSignIn = onCall(
       // Existing user: refresh identity but don't disturb any in-progress or
       // completed enrichment. Only seed enrichment.status if the field is
       // entirely absent (legacy users created before this worker existed).
-      const data = snap.data() ?? {};
       const updates: Record<string, unknown> = {
         ...profile,
         lastLoginAt: FieldValue.serverTimestamp(),
       };
-      if (!data.enrichment || typeof data.enrichment !== "object") {
+      if (
+        !existingData.enrichment ||
+        typeof existingData.enrichment !== "object"
+      ) {
         updates.enrichment = { status: "pending" };
       }
       await userRef.update(updates);
     }
 
-    // 5. Mint a Firebase custom token the client uses with signInWithCustomToken.
+    // 5. Ensure a personal Telegram binding code exists. This is the code the
+    //    site's "Join on Telegram" button puts in the t.me/<bot>?start=<code>
+    //    deep link. handleStart in the telegram webhook looks the code up,
+    //    sees usedBy=[uid], and binds the chat to this user. Generated once
+    //    and reused (idempotent) so re-logins keep the same link.
+    let telegramLinkCode = existingData.telegramLinkCode as string | undefined;
+    if (!telegramLinkCode) {
+      telegramLinkCode = await createBindingCode(db, uid);
+      await userRef.update({ telegramLinkCode });
+    }
+
+    // 6. Mint a Firebase custom token the client uses with signInWithCustomToken.
     const customToken = await auth.createCustomToken(uid, {
       provider: "linkedin",
       linkedinSub: userInfo.sub,
@@ -200,6 +214,7 @@ export const linkedinSignIn = onCall(
       customToken,
       uid,
       isNew: !snap.exists,
+      telegramLinkCode,
       profile: {
         email: userInfo.email ?? null,
         name: displayName,
@@ -208,3 +223,46 @@ export const linkedinSignIn = onCall(
     };
   }
 );
+
+// Invite-code charset/format must match telegram/webhook.ts INVITE_CODE_PATTERN
+// (/^VIVA-[A-Z0-9]{4}-[A-Z0-9]{2}$/). Ambiguous chars (0/O, 1/I) are kept since
+// the code travels in a URL, not typed by hand.
+const CODE_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+
+function randomCode(): string {
+  const pick = (n: number) =>
+    Array.from(
+      { length: n },
+      () => CODE_CHARS[Math.floor(Math.random() * CODE_CHARS.length)]
+    ).join("");
+  return `VIVA-${pick(4)}-${pick(2)}`;
+}
+
+// Create a fresh inviteCodes/{CODE} doc pre-redeemed to this uid, retrying on
+// the astronomically-rare collision. The doc shape matches what handleStart
+// reads: usedBy must contain exactly this uid.
+async function createBindingCode(
+  db: FirebaseFirestore.Firestore,
+  uid: string
+): Promise<string> {
+  for (let attempt = 0; attempt < 5; attempt++) {
+    const code = randomCode();
+    const ref = db.doc(`inviteCodes/${code}`);
+    const created = await db.runTransaction(async (tx) => {
+      const existing = await tx.get(ref);
+      if (existing.exists) return false;
+      tx.set(ref, {
+        code,
+        kind: "telegram_binding",
+        usedBy: [uid],
+        uses: 1,
+        maxUses: 1,
+        disabled: false,
+        createdAt: FieldValue.serverTimestamp(),
+      });
+      return true;
+    });
+    if (created) return code;
+  }
+  throw new HttpsError("internal", "Could not allocate a binding code");
+}

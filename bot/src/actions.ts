@@ -54,6 +54,15 @@ export interface IntroBuddyAction {
 
 export type PendingAction = CreateEventAction | IntroBuddyAction;
 
+// Stored on conversationStates/{recipientUid}.pendingIntroRequest while a
+// double-opt-in intro is awaiting the recipient's yes/no. The recipient must
+// accept before either party's contact is shared.
+export interface PendingIntroRequest {
+  requestId: string;
+  fromUid: string;
+  fromName: string;
+}
+
 /**
  * Parse the trailing `<<<ACTION ... ACTION>>>` marker from a Claude reply.
  * Returns the stripped reply (what the user sees) plus the structured action,
@@ -334,6 +343,47 @@ async function executeCreateEvent(
   };
 }
 
+// A one-line "who's asking" descriptor from the requester's profile, so the
+// recipient can decide on the request with context.
+function bioLine(userData: Record<string, unknown>): string {
+  const enr = (userData.enrichment ?? {}) as Record<string, unknown>;
+  const bio = (enr.bio as string) || (userData.bio as string) || "";
+  return bio.slice(0, 90);
+}
+
+// A shareable contact handle. Telegram usernames (t.me links) are designed to
+// be shared; WhatsApp uses wa.me/<digits>. Returns empty label if the user has
+// no shareable handle (e.g. Telegram without a username) — caller falls back to
+// just the name.
+function contactHandle(
+  userData: Record<string, unknown>
+): { label: string; link?: string } {
+  const username = userData.telegramUsername;
+  if (typeof username === "string" && username.trim()) {
+    const u = username.replace(/^@/, "");
+    return { label: `@${u}`, link: `https://t.me/${u}` };
+  }
+  const phone = userData.whatsappPhoneE164;
+  if (typeof phone === "string" && phone.startsWith("+")) {
+    const digits = phone.replace(/[^0-9]/g, "");
+    return { label: phone, link: `https://wa.me/${digits}` };
+  }
+  return { label: "" };
+}
+
+function contactText(
+  name: string,
+  handle: { label: string; link?: string }
+): string {
+  if (handle.link) return `${name} → ${handle.link}`;
+  if (handle.label) return `${name} → ${handle.label}`;
+  return `${name} (they'll reach out to you)`;
+}
+
+// Step 1 of the double-opt-in intro. The requester (A) confirmed `yes` on a
+// match; we DON'T share contacts yet — we send the buddy (B) a request they
+// must accept. Writes introRequests/{id} and parks a pendingIntroRequest on
+// B's conversation state so their next yes/no resolves it (in brain.ts).
 async function executeIntroBuddy(
   deps: ExecuteDeps,
   action: IntroBuddyAction
@@ -341,9 +391,6 @@ async function executeIntroBuddy(
   const { db, uid, userData } = deps;
   const sourceName = (userData.displayName as string | undefined) ?? "A member";
 
-  // Backstop: the directory now includes the requesting user (for prompt-cache
-  // stability), with self-exclusion enforced only by instruction. Guard here so
-  // a model slip can never actually ping someone to introduce them to themselves.
   if (action.targetUid === uid) {
     return { reply: `That one's you 🙂 — try \`find me a buddy\` for someone else.` };
   }
@@ -359,23 +406,132 @@ async function executeIntroBuddy(
   const route = pickChannel(targetData);
   if (!route) {
     return {
-      reply: `${targetData.displayName ?? "They"} hasn't linked WhatsApp or Telegram yet — can't ping.`,
+      reply: `${targetData.displayName ?? "They"} hasn't linked WhatsApp or Telegram yet — can't reach them.`,
     };
   }
+  const targetName = (targetData.displayName as string | undefined) ?? "there";
 
-  const introBody =
-    `${sourceName} asked me to intro you.\n\n${action.opener}\n\n` +
-    `Reply directly here to take it from there.`;
+  // Record the pending request.
+  const reqRef = db.collection("introRequests").doc();
+  await reqRef.set({
+    fromUid: uid,
+    fromName: sourceName,
+    toUid: action.targetUid,
+    toName: targetName,
+    opener: action.opener,
+    status: "pending",
+    createdAt: FieldValue.serverTimestamp(),
+  });
+
+  // Park the consent prompt on B's conversation state (resolved by brain.ts).
+  await db.doc(`conversationStates/${action.targetUid}`).set(
+    {
+      uid: action.targetUid,
+      pendingIntroRequest: {
+        requestId: reqRef.id,
+        fromUid: uid,
+        fromName: sourceName,
+      },
+      pendingIntroRequestAt: FieldValue.serverTimestamp(),
+      updatedAt: FieldValue.serverTimestamp(),
+    },
+    { merge: true }
+  );
+
+  const fromBio = bioLine(userData);
+  const requestBody =
+    `${sourceName}${fromBio ? ` (${fromBio})` : ""} wants to connect 👋\n\n` +
+    `"${action.opener}"\n\n` +
+    `Reply yes to swap contacts, or no to pass.`;
 
   await enqueueOutbox(db, {
     recipientUid: action.targetUid,
     route,
-    body: introBody,
-    type: "intro_ping",
+    body: requestBody,
+    type: "intro_request",
     sourceUid: uid,
   });
 
-  return { reply: `✓ Sent to ${targetData.displayName ?? "them"}.` };
+  return {
+    reply: `Sent your request to ${targetName}. I'll let you know if they're in.`,
+  };
+}
+
+// Step 2a — the buddy (B, = deps.uid) accepted. Share contacts both ways.
+export async function acceptIntroRequest(
+  deps: ExecuteDeps,
+  req: PendingIntroRequest
+): Promise<ExecuteResult> {
+  const { db, uid, userData } = deps;
+  const accepterName = (userData.displayName as string | undefined) ?? "They";
+
+  await db.doc(`introRequests/${req.requestId}`).set(
+    { status: "accepted", respondedAt: FieldValue.serverTimestamp() },
+    { merge: true }
+  );
+
+  const fromSnap = await db.doc(`users/${req.fromUid}`).get();
+  if (!fromSnap.exists) {
+    return { reply: `That request expired — the other person isn't reachable.` };
+  }
+  const fromData = fromSnap.data() ?? {};
+  const fromName = (fromData.displayName as string | undefined) ?? req.fromName ?? "They";
+
+  const accepterHandle = contactHandle(userData);
+  const fromHandle = contactHandle(fromData);
+
+  // Tell the requester (A) it was accepted, with B's contact.
+  const fromRoute = pickChannel(fromData);
+  if (fromRoute) {
+    await enqueueOutbox(db, {
+      recipientUid: req.fromUid,
+      route: fromRoute,
+      body:
+        `${accepterName} accepted your intro 🎉\n\n` +
+        `Reach them — ${contactText(accepterName, accepterHandle)}`,
+      type: "intro_accepted",
+      sourceUid: uid,
+    });
+  }
+
+  // Reply to the accepter (B) with A's contact.
+  return {
+    reply:
+      `Connected with ${fromName} 🎉\n\n` +
+      `Reach them — ${contactText(fromName, fromHandle)}`,
+  };
+}
+
+// Step 2b — the buddy (B) declined. Notify A gently; share nothing.
+export async function declineIntroRequest(
+  deps: ExecuteDeps,
+  req: PendingIntroRequest
+): Promise<ExecuteResult> {
+  const { db, uid } = deps;
+
+  await db.doc(`introRequests/${req.requestId}`).set(
+    { status: "declined", respondedAt: FieldValue.serverTimestamp() },
+    { merge: true }
+  );
+
+  const fromSnap = await db.doc(`users/${req.fromUid}`).get();
+  if (fromSnap.exists) {
+    const fromData = fromSnap.data() ?? {};
+    const fromRoute = pickChannel(fromData);
+    if (fromRoute) {
+      await enqueueOutbox(db, {
+        recipientUid: req.fromUid,
+        route: fromRoute,
+        body:
+          `Your intro request didn't connect this time. ` +
+          `Plenty more people to meet — try \`find me a buddy\`.`,
+        type: "intro_declined",
+        sourceUid: uid,
+      });
+    }
+  }
+
+  return { reply: `No problem — I won't share your contact. Passed.` };
 }
 
 export async function executePendingAction(

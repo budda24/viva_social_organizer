@@ -64,6 +64,15 @@ service cloud.firestore {
       allow write: if false;
     }
 
+    // Intro requests — double-opt-in connection requests. Either party can
+    // read their own; all writes go through the bot (admin SDK).
+    match /introRequests/{rid} {
+      allow read: if isAdmin() || (isSignedIn() &&
+        (request.auth.uid == resource.data.fromUid ||
+         request.auth.uid == resource.data.toUid));
+      allow write: if false;
+    }
+
     // Bot inbox + conversation state + outbox + log — server-only.
     match /botInbox/{id} { allow read: if isAdmin(); allow write: if false; }
     match /conversationStates/{id} { allow read: if isAdmin(); allow write: if false; }

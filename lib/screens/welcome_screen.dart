@@ -36,6 +36,9 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
   late String _displayName;
   String? _email;
   String? _photoUrl;
+  // The user's personal Telegram binding code (from linkedinSignIn / user doc).
+  // Falls back to widget.inviteCode only if we can't resolve a real one.
+  String? _telegramCode;
 
   @override
   void initState() {
@@ -63,12 +66,26 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
     final existing = FirebaseAuth.instance.currentUser;
     if (existing != null) {
       _populateFromUser(existing);
+      // Pull the real Telegram binding code from the user's doc.
+      WidgetsBinding.instance.addPostFrameCallback((_) => _loadTelegramCode(existing.uid));
       return;
     }
 
     if (code != null && code.isNotEmpty) {
       _exchanging = true;
       WidgetsBinding.instance.addPostFrameCallback((_) => _exchange(code));
+    }
+  }
+
+  Future<void> _loadTelegramCode(String uid) async {
+    try {
+      final snap = await FirebaseFirestore.instance.doc('users/$uid').get();
+      final code = snap.data()?['telegramLinkCode'] as String?;
+      if (code != null && code.isNotEmpty && mounted) {
+        setState(() => _telegramCode = code);
+      }
+    } catch (_) {
+      // Non-fatal — the Telegram button just falls back to widget.inviteCode.
     }
   }
 
@@ -121,6 +138,8 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
           ? Map<String, dynamic>.from(data['profile'] as Map)
           : const <String, dynamic>{};
 
+      final telegramCode = data['telegramLinkCode'] as String?;
+
       final cred = await FirebaseAuth.instance.signInWithCustomToken(token);
       if (!mounted) return;
       setState(() {
@@ -132,6 +151,9 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
         if (_displayName == widget.userName) {
           final n = profile['name'] as String?;
           if (n != null && n.isNotEmpty) _displayName = n.split(' ').first;
+        }
+        if (telegramCode != null && telegramCode.isNotEmpty) {
+          _telegramCode = telegramCode;
         }
       });
     } on FirebaseFunctionsException catch (e) {
@@ -215,7 +237,7 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
                       userName: _displayName,
                       email: _email,
                       photoUrl: _photoUrl,
-                      inviteCode: widget.inviteCode,
+                      inviteCode: _telegramCode ?? widget.inviteCode,
                     ),
                     const SizedBox(height: 56),
                     const _MatchedHumansBlock(),
@@ -229,7 +251,7 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
                         userName: _displayName,
                         email: _email,
                         photoUrl: _photoUrl,
-                        inviteCode: widget.inviteCode,
+                        inviteCode: _telegramCode ?? widget.inviteCode,
                       ),
                     ),
                     const SizedBox(width: 48),

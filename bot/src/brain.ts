@@ -25,10 +25,13 @@ import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { runOnboardingStep, type UserDocLike } from "./onboarding.js";
 import {
+  acceptIntroRequest,
+  declineIntroRequest,
   describePendingAction,
   executePendingAction,
   parseActionMarker,
   type PendingAction,
+  type PendingIntroRequest,
 } from "./actions.js";
 
 const BOT_DIR = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
@@ -67,6 +70,22 @@ interface ConvoState {
   pendingAction?: PendingAction;
   pendingActionAt?: Timestamp;
   eventCreation?: EventCreationState;
+  pendingIntroRequest?: PendingIntroRequest;
+}
+
+async function clearPendingIntroRequest(
+  db: Firestore,
+  uid: string
+): Promise<void> {
+  await db.doc(`conversationStates/${uid}`).set(
+    {
+      uid,
+      pendingIntroRequest: FieldValue.delete(),
+      pendingIntroRequestAt: FieldValue.delete(),
+      updatedAt: FieldValue.serverTimestamp(),
+    },
+    { merge: true }
+  );
 }
 
 async function loadConvoState(db: Firestore, uid: string): Promise<ConvoState> {
@@ -166,6 +185,35 @@ const CREATE_EVENT_PROMPT =
   "Example: \"Drinks tonight 8pm at Café Marly, max 12, open hang.\" " +
   "Reply `cancel` to back out.";
 
+// `free now`, `free`, `free for 30`, `free for 1h`, `free for 90m`, etc.
+// Returns the availability window in minutes. Defaults to 60 if no duration
+// given. Doesn't match unrelated messages that merely start with "free"
+// followed by a word (e.g. "free advice?") — requires bare/now/for-number.
+const FREE_CMD_RE = /^\s*free(?:\s+now|\s+for\b.*|\s*)$/i;
+
+function parseFreeCommand(text: string): { matched: boolean; minutes: number } {
+  const t = text.trim().toLowerCase();
+  if (!FREE_CMD_RE.test(t)) return { matched: false, minutes: 0 };
+  let minutes = 60; // "free" / "free now" → default 1 hour
+  const num = t.match(/(\d+)\s*(m|min|mins|minutes|h|hr|hrs|hour|hours)?/);
+  if (num) {
+    const n = parseInt(num[1], 10);
+    const unit = num[2] ?? "m";
+    minutes = /^h/.test(unit) ? n * 60 : n;
+  }
+  minutes = Math.max(5, Math.min(minutes, 720)); // clamp 5min–12h
+  return { matched: true, minutes };
+}
+
+function formatParisHHMM(ms: number): string {
+  return new Intl.DateTimeFormat("en-GB", {
+    timeZone: "Europe/Paris",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).format(new Date(ms));
+}
+
 interface DirectoryMember {
   uid: string;
   name: string;
@@ -183,6 +231,8 @@ interface DirectoryMember {
   topics: string[];
   lookingFor: string;
   city: string;
+  // Spontaneous availability — epoch ms of their freeUntil, if in the future.
+  freeUntilMs?: number;
 }
 
 async function loadMemberDirectory(db: Firestore): Promise<DirectoryMember[]> {
@@ -205,6 +255,15 @@ async function loadMemberDirectory(db: Firestore): Promise<DirectoryMember[]> {
         topics: Array.isArray(u.topics) ? (u.topics as string[]) : [],
         lookingFor: String(u.lookingFor ?? ""),
         city: String(u.city ?? ""),
+        // Future-only — filter expired here so the cached block stays stable
+        // (Claude double-checks against the current-time line for the 30s
+        // staleness window).
+        freeUntilMs:
+          u.freeUntil &&
+          typeof u.freeUntil.toMillis === "function" &&
+          u.freeUntil.toMillis() > Date.now()
+            ? (u.freeUntil.toMillis() as number)
+            : undefined,
       };
     })
     .sort((a, b) => a.uid.localeCompare(b.uid)); // stable order → byte-identical block → cacheable
@@ -296,6 +355,15 @@ function formatMemberLine(m: DirectoryMember): string {
   if (m.enrichedMatchSignals) parts.push(`· wants to meet: ${m.enrichedMatchSignals}`);
   if (m.enrichedRecentActivity) parts.push(`· recent: ${m.enrichedRecentActivity}`);
   if (!m.enrichedBio && m.lookingFor) parts.push(`· looking for: ${m.lookingFor}`);
+  if (m.freeUntilMs) {
+    const hhmm = new Intl.DateTimeFormat("en-GB", {
+      timeZone: "Europe/Paris",
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: false,
+    }).format(new Date(m.freeUntilMs));
+    parts.push(`· FREE until ${hhmm} Paris`);
+  }
   return parts.join(" ");
 }
 
@@ -308,8 +376,27 @@ function buildContextBlock(args: {
   history: Turn[];
   pendingAction?: PendingAction;
   eventMode?: boolean;
+  freeNowMode?: boolean;
+  freeUntilMs?: number;
 }): string {
   const lines: string[] = [];
+  if (args.freeNowMode) {
+    const until = args.freeUntilMs ? formatParisHHMM(args.freeUntilMs) : "soon";
+    lines.push(`# FREE_NOW_MODE (single-turn directive)`);
+    lines.push(
+      `The user just signalled they're free right now — their availability is set until ${until} Paris time.`
+    );
+    lines.push(
+      `Scan the Member directory for OTHER members marked "FREE until HH:MM" whose time is still in the future vs the current time below.`
+    );
+    lines.push(
+      `Pick the 1 best match among those currently-free members (overlap on goal/topics/wants-to-meet). Reply: "You're free until ${until}. <Name> is free too — <1-line why>. Suggested opener: <line>." Then emit an intro_buddy action marker for that person so a 'yes' pings them.`
+    );
+    lines.push(
+      `If NOBODY else in the directory is currently free, say exactly that in one line and offer the fallback: "Nobody else flagged free right now. Want a buddy for later? Reply find me a buddy." Emit NO marker in that case.`
+    );
+    lines.push(``);
+  }
   if (args.eventMode) {
     lines.push(`# EVENT_CREATION_MODE (single-turn directive)`);
     lines.push(
@@ -476,6 +563,45 @@ export async function processMessage(deps: ProcessMessageDeps): Promise<void> {
   }
 
   const convoState = await loadConvoState(db, uid);
+
+  // Incoming intro request — this user was asked to connect with someone and
+  // owes a yes/no. Checked BEFORE their own pendingAction because the request
+  // prompt is the most recent thing they saw, and someone is waiting on them.
+  const incomingIntro = convoState.pendingIntroRequest;
+  if (incomingIntro) {
+    if (isYes(body)) {
+      const result = await acceptIntroRequest(
+        { db, uid, userData: userData as Record<string, unknown> },
+        incomingIntro
+      );
+      await clearPendingIntroRequest(db, uid);
+      await writeOutbox(db, { provider, uid, phone, chatId, body: result.reply, type: "intro_accepted_self" });
+      await appendTurns(db, uid, [
+        { role: "user", content: body, at: Timestamp.now() },
+        { role: "assistant", content: result.reply, at: Timestamp.now() },
+      ]);
+      await inboxDoc.ref.update({ intent: "intro_accepted" });
+      return;
+    }
+    if (isNo(body)) {
+      const result = await declineIntroRequest(
+        { db, uid, userData: userData as Record<string, unknown> },
+        incomingIntro
+      );
+      await clearPendingIntroRequest(db, uid);
+      await writeOutbox(db, { provider, uid, phone, chatId, body: result.reply, type: "intro_declined_self" });
+      await appendTurns(db, uid, [
+        { role: "user", content: body, at: Timestamp.now() },
+        { role: "assistant", content: result.reply, at: Timestamp.now() },
+      ]);
+      await inboxDoc.ref.update({ intent: "intro_declined" });
+      return;
+    }
+    // Neither yes nor no — they moved on. Expire the prompt (the request doc
+    // stays "pending"; they can be re-asked later) and fall through to Claude.
+    await clearPendingIntroRequest(db, uid);
+  }
+
   const pending = convoState.pendingAction;
 
   // Pre-Claude: if there's a pendingAction and user confirms / cancels,
@@ -585,6 +711,23 @@ export async function processMessage(deps: ProcessMessageDeps): Promise<void> {
     await setEventCreation(db, uid, null);
   }
 
+  // Free-now: write the user's availability window deterministically (Claude
+  // has no tool to write it), then hand off to Claude in FREE_NOW_MODE to
+  // match them against other currently-free members.
+  let freeNowMode = false;
+  let freeUntilMs: number | undefined;
+  if (!eventMode) {
+    const free = parseFreeCommand(body);
+    if (free.matched) {
+      freeNowMode = true;
+      freeUntilMs = Date.now() + free.minutes * 60_000;
+      await userRef.set(
+        { freeUntil: Timestamp.fromMillis(freeUntilMs) },
+        { merge: true }
+      );
+    }
+  }
+
   const [history, members] = await Promise.all([
     loadConversation(db, uid),
     getMemberDirectory(db),
@@ -611,6 +754,8 @@ export async function processMessage(deps: ProcessMessageDeps): Promise<void> {
     history,
     pendingAction: pending,
     eventMode,
+    freeNowMode,
+    freeUntilMs,
   });
 
   const rawReply = await runClaude(claudeBody, directoryBlock, volatileBlock);
