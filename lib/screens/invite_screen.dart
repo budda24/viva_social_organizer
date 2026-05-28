@@ -1,14 +1,17 @@
 import 'dart:math';
 
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:web/web.dart' as web;
 
 import '../data/sample_data.dart';
+import '../models/event.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_theme.dart';
 import '../widgets/app_scaffold.dart';
 import '../widgets/attendee_card.dart';
+import '../widgets/event_card.dart';
 import '../widgets/primary_button.dart';
 import '../widgets/status_pill.dart';
 
@@ -33,16 +36,20 @@ class InviteScreen extends StatelessWidget {
         padding: EdgeInsets.symmetric(horizontal: isCompact ? 20 : 40),
         child: Padding(
           padding: EdgeInsets.symmetric(vertical: isCompact ? 24 : 48),
-          child: isCompact
-              ? Column(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              if (isCompact)
+                const Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: const [
+                  children: [
                     _SignInBlock(),
                     SizedBox(height: 56),
                     _AlreadyInsideBlock(),
                   ],
                 )
-              : const Row(
+              else
+                const Row(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Expanded(child: _SignInBlock()),
@@ -50,6 +57,10 @@ class InviteScreen extends StatelessWidget {
                     Expanded(child: _AlreadyInsideBlock()),
                   ],
                 ),
+              SizedBox(height: isCompact ? 56 : 72),
+              const _AlreadyHappeningBlock(),
+            ],
+          ),
         ),
       ),
     );
@@ -243,6 +254,121 @@ class _InviteCodeChip extends StatelessWidget {
           ],
         ),
       ),
+    );
+  }
+}
+
+class _AlreadyHappeningBlock extends StatelessWidget {
+  const _AlreadyHappeningBlock();
+
+  static const _emojiByKind = {
+    'breakfast': '🍳',
+    'coffee': '☕',
+    'lunch': '🥗',
+    'drinks': '🥂',
+    'dinner': '🍝',
+    'rooftop': '🌇',
+    'walk': '🚶',
+    'side-event': '🎟️',
+    'other': '📍',
+  };
+
+  static const _days = ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN'];
+  static const _months = [
+    'JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN',
+    'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC',
+  ];
+
+  static String _dayLabel(DateTime dt) {
+    final l = dt.toLocal();
+    final dn = _days[(l.weekday - 1).clamp(0, 6)];
+    final mn = _months[(l.month - 1).clamp(0, 11)];
+    return '$dn · ${l.day} $mn';
+  }
+
+  Event _fromDoc(QueryDocumentSnapshot<Map<String, dynamic>> doc) {
+    final d = doc.data();
+    final kind = (d['kind'] as String?) ?? 'other';
+    final title = (d['title'] as String?) ?? '(untitled)';
+    final hostName = (d['hostName'] as String?) ?? 'A member';
+    final startAt = d['startAt'];
+    final day = startAt is Timestamp ? _dayLabel(startAt.toDate()) : '';
+    final emoji = _emojiByKind[kind] ?? '📍';
+    return Event(
+      emoji: emoji,
+      title: title,
+      day: day,
+      organizer: hostName,
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final stream = FirebaseFirestore.instance
+        .collection('events')
+        .where('status', whereIn: ['scheduled', 'live'])
+        .orderBy('startAt')
+        .limit(12)
+        .snapshots();
+
+    return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+      stream: stream,
+      builder: (context, snap) {
+        final docs = snap.data?.docs ?? const [];
+        final realEvents = docs.map(_fromDoc).toList(growable: false);
+        // Fall back to sample teasers when the collection is empty or still
+        // loading — the section should never look dead on a conversion page.
+        final useReal = realEvents.isNotEmpty;
+        final events = useReal ? realEvents : sampleEvents;
+        final pillLabel = useReal
+            ? '${realEvents.length} live · sign in for details'
+            : '${sampleEvents.length} events · more daily';
+
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                const Text(
+                  'ALREADY HAPPENING',
+                  style: TextStyle(
+                    color: AppColors.inkMuted,
+                    fontSize: 11,
+                    letterSpacing: 1.4,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const Spacer(),
+                StatusPill(label: pillLabel),
+              ],
+            ),
+            const SizedBox(height: 18),
+            LayoutBuilder(
+              builder: (context, constraints) {
+                final w = constraints.maxWidth;
+                final columns = w < 460
+                    ? 2
+                    : w < 720
+                    ? 3
+                    : w < 1000
+                    ? 4
+                    : 5;
+                const gap = 12.0;
+                final cardWidth =
+                    (constraints.maxWidth - gap * (columns - 1)) / columns;
+                return Wrap(
+                  spacing: gap,
+                  runSpacing: gap,
+                  children: [
+                    for (final e in events)
+                      SizedBox(width: cardWidth, child: EventCard(event: e)),
+                  ],
+                );
+              },
+            ),
+          ],
+        );
+      },
     );
   }
 }

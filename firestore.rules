@@ -37,10 +37,12 @@ service cloud.firestore {
       allow read, write: if false;
     }
 
-    // Events — any signed-in user can read. Writes go through the bot's
-    // admin SDK (which bypasses rules) so no client-write path needed.
+    // Events — public read so the pre-auth /in landing can show a blurred
+    // teaser of real events being created. Drives conversion. Writes still
+    // go through the bot's admin SDK. RSVPs stay sign-in-gated since they
+    // expose participant identity.
     match /events/{eventId} {
-      allow read: if isSignedIn();
+      allow read: if true;
       allow write: if false;
 
       match /rsvps/{uid} {
