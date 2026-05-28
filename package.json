@@ -4,7 +4,7 @@
   "description": "Root scripts for VivaTech Social Organizer (Flutter Web + Firebase Hosting + Functions).",
   "private": true,
   "scripts": {
-    "build:flutter": "bash -c 'set -o pipefail; flutter build web --release 2>&1 | tee /tmp/flutter-web-build.log'",
+    "build:flutter": "bash -c 'set -o pipefail; flutter build web --release --pwa-strategy=none 2>&1 | tee /tmp/flutter-web-build.log && cp web/sw-killswitch.js build/web/flutter_service_worker.js'",
     "build:hosting": "npm run build:flutter",
     "deploy": "firebase deploy",
     "deploy:hosting": "firebase deploy --only hosting",
