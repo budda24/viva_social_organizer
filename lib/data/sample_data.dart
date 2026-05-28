@@ -1,5 +1,4 @@
 import '../models/attendee.dart';
-import '../models/event.dart';
 import '../models/matched_human.dart';
 import '../models/speaker.dart';
 
@@ -71,57 +70,6 @@ const sampleAttendees = <Attendee>[
     name: 'Tom Adebayo',
     description: 'evals infra for production agents',
     location: 'LONDON',
-  ),
-];
-
-const sampleEvents = <Event>[
-  Event(
-    emoji: '🥐',
-    title: 'Breakfast meet',
-    day: 'WED · 17 JUN',
-    organizer: 'Léa Mercier',
-  ),
-  Event(
-    emoji: '🏃',
-    title: 'Morning run · Seine',
-    day: 'THU · 18 JUN',
-    organizer: 'Marcus Højlund',
-  ),
-  Event(
-    emoji: '🎤',
-    title: 'Lightning demos',
-    day: 'THU · 18 JUN',
-    organizer: 'Tom Adebayo',
-  ),
-  Event(
-    emoji: '🍷',
-    title: 'Wine + agents',
-    day: 'THU · 18 JUN',
-    organizer: 'Yuki Tanaka',
-  ),
-  Event(
-    emoji: '🚶',
-    title: 'Walk to LeCun keynote',
-    day: 'FRI · 19 JUN',
-    organizer: 'Yuki Tanaka',
-  ),
-  Event(
-    emoji: '☕',
-    title: 'Founders coffee',
-    day: 'FRI · 19 JUN',
-    organizer: 'Léa Mercier',
-  ),
-  Event(
-    emoji: '🥗',
-    title: 'Late lunch · Le Marais',
-    day: 'FRI · 19 JUN',
-    organizer: 'Marcus Højlund',
-  ),
-  Event(
-    emoji: '🌃',
-    title: 'After-party warm-up',
-    day: 'SAT · 20 JUN',
-    organizer: 'Tom Adebayo',
   ),
 ];
 

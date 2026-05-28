@@ -7,12 +7,33 @@ import '../theme/app_colors.dart';
 import '../theme/app_theme.dart';
 
 class EventCard extends StatelessWidget {
-  const EventCard({super.key, required this.event});
+  const EventCard({super.key, required this.event, this.gated = true});
 
   final Event event;
+  // When false, organizer + day render unblurred and the sign-in lock pill is
+  // omitted. Used for the empty-state example card, which shouldn't look
+  // gated since there's no real event behind it to unlock.
+  final bool gated;
 
   @override
   Widget build(BuildContext context) {
+    final details = Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _OrganizerRow(name: event.organizer),
+        const SizedBox(height: 10),
+        Text(
+          event.day,
+          style: const TextStyle(
+            color: AppColors.inkSubtle,
+            fontSize: 10,
+            letterSpacing: 1.4,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+      ],
+    );
+
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
@@ -30,64 +51,52 @@ class EventCard extends StatelessWidget {
             style: serif(fontSize: 17, weight: FontWeight.w500),
           ),
           const SizedBox(height: 12),
-          Stack(
-            children: [
-              ImageFiltered(
-                imageFilter: ImageFilter.blur(sigmaX: 4.5, sigmaY: 4.5),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    _OrganizerRow(name: event.organizer),
-                    const SizedBox(height: 10),
-                    Text(
-                      event.day,
-                      style: const TextStyle(
-                        color: AppColors.inkSubtle,
-                        fontSize: 10,
-                        letterSpacing: 1.4,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                  ],
+          if (gated)
+            Stack(
+              children: [
+                ImageFiltered(
+                  imageFilter: ImageFilter.blur(sigmaX: 4.5, sigmaY: 4.5),
+                  child: details,
                 ),
-              ),
-              Positioned.fill(
-                child: Center(
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 10,
-                      vertical: 5,
-                    ),
-                    decoration: BoxDecoration(
-                      color: AppColors.surfaceTint,
-                      borderRadius: BorderRadius.circular(999),
-                      border: Border.all(color: AppColors.surfaceTintBorder),
-                    ),
-                    child: const Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(
-                          Icons.lock_outline,
-                          size: 11,
-                          color: AppColors.accent,
-                        ),
-                        SizedBox(width: 6),
-                        Text(
-                          'Sign in for when & host',
-                          style: TextStyle(
-                            color: AppColors.ink,
-                            fontSize: 10,
-                            letterSpacing: 0.6,
-                            fontWeight: FontWeight.w600,
+                Positioned.fill(
+                  child: Center(
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 10,
+                        vertical: 5,
+                      ),
+                      decoration: BoxDecoration(
+                        color: AppColors.surfaceTint,
+                        borderRadius: BorderRadius.circular(999),
+                        border: Border.all(color: AppColors.surfaceTintBorder),
+                      ),
+                      child: const Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            Icons.lock_outline,
+                            size: 11,
+                            color: AppColors.accent,
                           ),
-                        ),
-                      ],
+                          SizedBox(width: 6),
+                          Text(
+                            'Sign in for when & host',
+                            style: TextStyle(
+                              color: AppColors.ink,
+                              fontSize: 10,
+                              letterSpacing: 0.6,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
                   ),
                 ),
-              ),
-            ],
-          ),
+              ],
+            )
+          else
+            details,
         ],
       ),
     );

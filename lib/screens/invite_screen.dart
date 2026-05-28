@@ -15,8 +15,6 @@ import '../widgets/event_card.dart';
 import '../widgets/primary_button.dart';
 import '../widgets/status_pill.dart';
 
-const String _kInviteCodeDemo = 'VIVA-26-LK7';
-
 // LinkedIn OAuth — public client ID, safe to commit. Secret stays server-side.
 const String _kLinkedInClientId = '77zqokaru43u0r';
 const String _kLinkedInAuthEndpoint =
@@ -203,57 +201,7 @@ class _SignInBlockState extends State<_SignInBlock> {
             style: const TextStyle(color: Colors.red, fontSize: 13),
           ),
         ],
-        const SizedBox(height: 18),
-        const _InviteCodeChip(code: _kInviteCodeDemo),
       ],
-    );
-  }
-}
-
-class _InviteCodeChip extends StatelessWidget {
-  const _InviteCodeChip({required this.code});
-
-  final String code;
-
-  @override
-  Widget build(BuildContext context) {
-    return Align(
-      alignment: Alignment.centerLeft,
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-        decoration: BoxDecoration(
-          color: AppColors.surfaceTint,
-          borderRadius: BorderRadius.circular(999),
-          border: Border.all(color: AppColors.surfaceTintBorder),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Text(
-              'code',
-              style: TextStyle(
-                color: AppColors.inkMuted,
-                fontSize: 11,
-                letterSpacing: 1.2,
-                fontWeight: FontWeight.w500,
-              ),
-            ),
-            const SizedBox(width: 8),
-            Text(code, style: mono(fontSize: 12)),
-            const SizedBox(width: 10),
-            const Icon(
-              Icons.check_circle,
-              size: 14,
-              color: AppColors.statusGreen,
-            ),
-            const SizedBox(width: 6),
-            const Text(
-              'recognised',
-              style: TextStyle(color: AppColors.inkMuted, fontSize: 12),
-            ),
-          ],
-        ),
-      ),
     );
   }
 }
@@ -314,15 +262,17 @@ class _AlreadyHappeningBlock extends StatelessWidget {
     return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
       stream: stream,
       builder: (context, snap) {
-        final docs = snap.data?.docs ?? const [];
-        final realEvents = docs.map(_fromDoc).toList(growable: false);
-        // Fall back to sample teasers when the collection is empty or still
-        // loading — the section should never look dead on a conversion page.
-        final useReal = realEvents.isNotEmpty;
-        final events = useReal ? realEvents : sampleEvents;
-        final pillLabel = useReal
-            ? '${realEvents.length} live · sign in for details'
-            : '${sampleEvents.length} events · more daily';
+        // Don't render anything until the first snapshot resolves — avoids
+        // flashing the "be first" empty state on a cold load that's about to
+        // populate. Firestore's offline cache makes this near-instant on
+        // warm loads.
+        if (snap.connectionState == ConnectionState.waiting) {
+          return const SizedBox.shrink();
+        }
+        final events = (snap.data?.docs ?? const [])
+            .map(_fromDoc)
+            .toList(growable: false);
+        final isEmpty = events.isEmpty;
 
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -339,33 +289,141 @@ class _AlreadyHappeningBlock extends StatelessWidget {
                   ),
                 ),
                 const Spacer(),
-                StatusPill(label: pillLabel),
+                StatusPill(
+                  label: isEmpty
+                      ? 'Nobody yet · be first'
+                      : '${events.length} live · sign in for details',
+                ),
               ],
             ),
             const SizedBox(height: 18),
-            LayoutBuilder(
-              builder: (context, constraints) {
-                final w = constraints.maxWidth;
-                final columns = w < 460
-                    ? 2
-                    : w < 720
-                    ? 3
-                    : w < 1000
-                    ? 4
-                    : 5;
-                const gap = 12.0;
-                final cardWidth =
-                    (constraints.maxWidth - gap * (columns - 1)) / columns;
-                return Wrap(
-                  spacing: gap,
-                  runSpacing: gap,
-                  children: [
-                    for (final e in events)
-                      SizedBox(width: cardWidth, child: EventCard(event: e)),
-                  ],
-                );
-              },
+            if (isEmpty)
+              const _EmptyHappeningState(example: _exampleEvent)
+            else
+              LayoutBuilder(
+                builder: (context, constraints) {
+                  final w = constraints.maxWidth;
+                  final columns = w < 460
+                      ? 2
+                      : w < 720
+                      ? 3
+                      : w < 1000
+                      ? 4
+                      : 5;
+                  const gap = 12.0;
+                  final cardWidth =
+                      (constraints.maxWidth - gap * (columns - 1)) / columns;
+                  return Wrap(
+                    spacing: gap,
+                    runSpacing: gap,
+                    children: [
+                      for (final e in events)
+                        SizedBox(width: cardWidth, child: EventCard(event: e)),
+                    ],
+                  );
+                },
+              ),
+          ],
+        );
+      },
+    );
+  }
+
+  // Hardcoded illustrative card shown next to the "be first" CTA in the empty
+  // state. Clearly labelled EXAMPLE so it isn't mistaken for a real event.
+  static const _exampleEvent = Event(
+    emoji: '☕',
+    title: 'Founders coffee',
+    day: 'FRI · 19 JUN',
+    organizer: 'You',
+  );
+}
+
+class _EmptyHappeningState extends StatelessWidget {
+  const _EmptyHappeningState({required this.example});
+
+  final Event example;
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final isCompact = constraints.maxWidth < 640;
+        final cta = Container(
+          padding: const EdgeInsets.all(20),
+          decoration: BoxDecoration(
+            color: AppColors.cardBg,
+            border: Border.all(color: AppColors.cardBorder),
+            borderRadius: BorderRadius.circular(14),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Be the first to schedule something',
+                style: serif(fontSize: 22, weight: FontWeight.w500),
+              ),
+              const SizedBox(height: 10),
+              const Text(
+                'Sign in, message the bot, say "drinks tonight at 8" — it pings '
+                'every member who fits. Breakfast, walk, demo, dinner — '
+                'anything works.',
+                style: TextStyle(
+                  color: AppColors.inkMuted,
+                  fontSize: 14,
+                  height: 1.5,
+                ),
+              ),
+            ],
+          ),
+        );
+
+        final exampleCard = Stack(
+          children: [
+            EventCard(event: example, gated: false),
+            Positioned(
+              top: 10,
+              right: 10,
+              child: Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 8,
+                  vertical: 3,
+                ),
+                decoration: BoxDecoration(
+                  color: AppColors.surfaceTint,
+                  borderRadius: BorderRadius.circular(999),
+                  border: Border.all(color: AppColors.surfaceTintBorder),
+                ),
+                child: const Text(
+                  'EXAMPLE',
+                  style: TextStyle(
+                    color: AppColors.inkMuted,
+                    fontSize: 9,
+                    letterSpacing: 1.4,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
             ),
+          ],
+        );
+
+        if (isCompact) {
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              cta,
+              const SizedBox(height: 16),
+              exampleCard,
+            ],
+          );
+        }
+        return Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(child: cta),
+            const SizedBox(width: 24),
+            SizedBox(width: 240, child: exampleCard),
           ],
         );
       },
@@ -381,20 +439,14 @@ class _AlreadyInsideBlock extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Row(
-          children: const [
-            Text(
-              'ALREADY INSIDE',
-              style: TextStyle(
-                color: AppColors.inkMuted,
-                fontSize: 11,
-                letterSpacing: 1.4,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-            Spacer(),
-            StatusPill(label: '74 / 100'),
-          ],
+        const Text(
+          'ALREADY INSIDE',
+          style: TextStyle(
+            color: AppColors.inkMuted,
+            fontSize: 11,
+            letterSpacing: 1.4,
+            fontWeight: FontWeight.w600,
+          ),
         ),
         const SizedBox(height: 18),
         LayoutBuilder(
