@@ -28,8 +28,6 @@ class LandingScreen extends StatelessWidget {
             const _InviteOnlyPill(),
             const SizedBox(height: 32),
             _Hero(isCompact: isCompact, onInvite: () => Navigator.of(context).pushNamed('/in')),
-            const SizedBox(height: 64),
-            const _WhatYouGet(),
             const SizedBox(height: 56),
             const _BotDemos(),
             const SizedBox(height: 64),
@@ -162,125 +160,6 @@ class _Hero extends StatelessWidget {
           ],
         ),
       ],
-    );
-  }
-}
-
-class _Feature {
-  const _Feature(this.emoji, this.title, this.body);
-  final String emoji;
-  final String title;
-  final String body;
-}
-
-const _features = <_Feature>[
-  _Feature(
-    '🤝',
-    'One good intro beats fifty business cards',
-    "Tell Tribu you're after climate VCs. It comes back with a name, why "
-        "they fit, and a line to open with. They have to say yes before you "
-        "swap numbers.",
-  ),
-  _Feature(
-    '☕',
-    'Make a plan in one message',
-    "\"Drinks at 8 near Porte de Versailles.\" Tribu tells the people who'd "
-        "actually come, and they tap to join. You skip the group-chat noise.",
-  ),
-  _Feature(
-    '💬',
-    'It already lives in your pocket',
-    "Tribu runs inside WhatsApp and Telegram. Message it the way you'd ask "
-        "a friend who happens to know everyone in the room.",
-  ),
-];
-
-class _WhatYouGet extends StatelessWidget {
-  const _WhatYouGet();
-
-  @override
-  Widget build(BuildContext context) {
-    final width = MediaQuery.sizeOf(context).width;
-    final isCompact = width < 760;
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const Text(
-          "ONCE YOU'RE IN",
-          style: TextStyle(
-            fontSize: 11,
-            letterSpacing: 1.4,
-            color: AppColors.inkMuted,
-            fontWeight: FontWeight.w600,
-          ),
-        ),
-        const SizedBox(height: 20),
-        if (isCompact)
-          Column(
-            children: [
-              for (final f in _features) ...[
-                _FeatureCard(feature: f),
-                if (f != _features.last) const SizedBox(height: 14),
-              ],
-            ],
-          )
-        else
-          LayoutBuilder(
-            builder: (context, constraints) {
-              const gap = 16.0;
-              final cardWidth =
-                  (constraints.maxWidth - gap * (_features.length - 1)) /
-                      _features.length;
-              return Wrap(
-                spacing: gap,
-                runSpacing: gap,
-                children: [
-                  for (final f in _features)
-                    SizedBox(width: cardWidth, child: _FeatureCard(feature: f)),
-                ],
-              );
-            },
-          ),
-      ],
-    );
-  }
-}
-
-class _FeatureCard extends StatelessWidget {
-  const _FeatureCard({required this.feature});
-
-  final _Feature feature;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(22),
-      decoration: BoxDecoration(
-        color: AppColors.cardBg,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: AppColors.cardBorder),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(feature.emoji, style: const TextStyle(fontSize: 26)),
-          const SizedBox(height: 14),
-          Text(
-            feature.title,
-            style: serif(fontSize: 21, weight: FontWeight.w500),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            feature.body,
-            style: const TextStyle(
-              color: AppColors.inkMuted,
-              fontSize: 14,
-              height: 1.5,
-            ),
-          ),
-        ],
-      ),
     );
   }
 }
