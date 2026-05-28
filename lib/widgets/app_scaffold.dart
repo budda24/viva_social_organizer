@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../theme/app_colors.dart';
 import 'footer.dart';
 import 'top_bar.dart';
+import 'visit_card.dart';
 
 class AppScaffold extends StatelessWidget {
   const AppScaffold({
@@ -38,6 +39,7 @@ class AppScaffold extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
                     TopBar(trailing: topBarTrailing),
+                    const VisitCard(),
                     child,
                     const AppFooter(),
                   ],

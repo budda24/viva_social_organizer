@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../theme/app_colors.dart';
 import 'online_tribes_logo.dart';
@@ -23,9 +24,23 @@ class AppFooter extends StatelessWidget {
           ),
         ],
       ),
-      const Text(
-        'hello@online-tribes.com',
-        style: TextStyle(fontSize: 12, color: AppColors.inkMuted),
+      MouseRegion(
+        cursor: SystemMouseCursors.click,
+        child: GestureDetector(
+          onTap: () => launchUrl(
+            Uri.parse('mailto:franek@online-tribes.com'),
+            mode: LaunchMode.externalApplication,
+          ),
+          child: const Text(
+            'franek@online-tribes.com',
+            style: TextStyle(
+              fontSize: 12,
+              color: AppColors.inkMuted,
+              decoration: TextDecoration.underline,
+              decorationColor: AppColors.inkSubtle,
+            ),
+          ),
+        ),
       ),
     ];
 

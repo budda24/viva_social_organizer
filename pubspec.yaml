@@ -69,6 +69,7 @@ flutter:
   assets:
     - assets/online_tribes_logo.jpeg
     - assets/speakers/
+    - assets/founders/
 
   # To add assets to your application, add an assets section, like this:
   # assets:

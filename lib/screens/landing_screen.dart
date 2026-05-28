@@ -5,6 +5,7 @@ import '../models/speaker.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_theme.dart';
 import '../widgets/app_scaffold.dart';
+import '../widgets/bot_demo_card.dart';
 import '../widgets/primary_button.dart';
 import '../widgets/speaker_card.dart';
 import '../widgets/status_pill.dart';
@@ -29,7 +30,9 @@ class LandingScreen extends StatelessWidget {
             _Hero(isCompact: isCompact, onInvite: () => Navigator.of(context).pushNamed('/in')),
             const SizedBox(height: 64),
             const _WhatYouGet(),
-            const SizedBox(height: 72),
+            const SizedBox(height: 56),
+            const _BotDemos(),
+            const SizedBox(height: 64),
             const _SpeakersHeader(),
             const SizedBox(height: 20),
             _SpeakerGrid(speakers: sampleSpeakers),
@@ -278,6 +281,136 @@ class _FeatureCard extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+class _BotDemos extends StatelessWidget {
+  const _BotDemos();
+
+  @override
+  Widget build(BuildContext context) {
+    final width = MediaQuery.sizeOf(context).width;
+    final demos = <Widget>[
+      const BotDemoCard(
+        kicker: '01 · FIND PEOPLE',
+        title: 'Find people',
+        turns: [
+          DemoTurn(text: '/find me', fromUser: true, time: '10:14'),
+          DemoTurn(text: 'a climate VC', fromUser: true, time: '10:14'),
+          DemoTurn(
+            text:
+                'Marcus Højlund — Copenhagen, boutique European fund, leads early-stage climate cheques. In Paris until Fri. Free 19h tonight. Want me to ping?',
+            fromUser: false,
+            time: '10:15',
+          ),
+          DemoTurn(text: 'yes please', fromUser: true, time: '10:15'),
+          DemoTurn(
+            text: 'Pinging Marcus ✅ No direct contact swap yet —',
+            fromUser: false,
+          ),
+        ],
+        caption:
+            "/find me — Tell Tribu what you're after. It surfaces the human and asks before pinging.",
+      ),
+      const BotDemoCard(
+        kicker: '02 · FIND A BUDDY',
+        title: 'Find a buddy',
+        turns: [
+          DemoTurn(text: '/find buddy', fromUser: true, time: '10:14'),
+          DemoTurn(
+            text: 'For which session? (e.g. LeCun keynote, 14h)',
+            fromUser: false,
+            time: '10:14',
+          ),
+          DemoTurn(text: 'LeCun keynote 14h', fromUser: true, time: '10:15'),
+          DemoTurn(
+            text:
+                'Yuki Tanaka (Tokyo, agentic CRM) is also going. Want me to set you up to meet at the entrance?',
+            fromUser: false,
+            time: '10:15',
+          ),
+          DemoTurn(text: 'yes', fromUser: true, time: '10:15'),
+          DemoTurn(text: 'Done ✅ Group chat', fromUser: false),
+        ],
+        caption:
+            '/find buddy — Pair up for a session, a panel, a walk to the after-party. Never go alone.',
+      ),
+      const BotDemoCard(
+        kicker: '03 · CREATE EVENTS',
+        title: 'Create events',
+        turns: [
+          DemoTurn(text: '/create event', fromUser: true, time: '07:58'),
+          DemoTurn(
+            text: 'Quick one — give me what, where, when.',
+            fromUser: false,
+            time: '07:58',
+          ),
+          DemoTurn(
+            text: 'breakfast at Le Marais, tomorrow 8h',
+            fromUser: true,
+            time: '07:59',
+          ),
+          DemoTurn(
+            text:
+                'Got it:\n🥗 Breakfast at Le Marais\n📅 Wed 18 Jun · 08:00\n📍 Le Mary, 17 rue du Roi de Sicile',
+            fromUser: false,
+            time: '07:59',
+          ),
+          DemoTurn(text: 'yes', fromUser: true, time: '08:00'),
+          DemoTurn(text: "Posting to the tribe. I'll DM", fromUser: false),
+        ],
+        caption:
+            '/create event — Drop the what, where, when. Tribu posts and collects RSVPs in DMs.',
+      ),
+      const BotDemoCard(
+        kicker: '04 · JOIN ANYTHING',
+        title: 'Join anything',
+        turns: [
+          DemoTurn(
+            text:
+                '📣 New from Léa:\n🥗 Breakfast at Le Marais\n📅 Wed 18 Jun · 08:00\n📍 Le Mary, 17 rue du Roi de Sicile\n\nReply `in` to join.',
+            fromUser: false,
+            time: '08:02',
+          ),
+          DemoTurn(text: 'in', fromUser: true, time: '08:02'),
+          DemoTurn(
+            text:
+                "You're in ✅\n4 going so far: Léa, Yuki, Marcus, you. I'll send the group chat at 19h tonight.",
+            fromUser: false,
+            time: '08:02',
+          ),
+        ],
+        caption:
+            'in — One word to RSVP. Tribu spins up the group chat the moment it’s worth meeting.',
+      ),
+    ];
+
+    if (width < 760) {
+      return SizedBox(
+        height: 540,
+        child: ListView.separated(
+          scrollDirection: Axis.horizontal,
+          padding: EdgeInsets.zero,
+          itemCount: demos.length,
+          separatorBuilder: (_, _) => const SizedBox(width: 16),
+          itemBuilder: (_, i) => SizedBox(width: 280, child: demos[i]),
+        ),
+      );
+    }
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        const gap = 16.0;
+        final cardWidth = (constraints.maxWidth - gap * 3) / 4;
+        return Wrap(
+          spacing: gap,
+          runSpacing: gap,
+          children: [
+            for (final d in demos) SizedBox(width: cardWidth, child: d),
+          ],
+        );
+      },
     );
   }
 }
