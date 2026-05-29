@@ -33,6 +33,17 @@ import {
   type PendingAction,
   type PendingIntroRequest,
 } from "./actions.js";
+import {
+  claudeLanguageDirective,
+  isNoWord,
+  isYesWord,
+  languageName,
+  msg,
+  normalizeLang,
+  parseLangReply,
+  parseLanguageCommand,
+  type Lang,
+} from "./i18n.js";
 
 const BOT_DIR = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const CLAUDE_MD_PATH = path.join(BOT_DIR, "CLAUDE.md");
@@ -71,6 +82,30 @@ interface ConvoState {
   pendingActionAt?: Timestamp;
   eventCreation?: EventCreationState;
   pendingIntroRequest?: PendingIntroRequest;
+  awaitingLanguage?: boolean;
+}
+
+async function setAwaitingLanguage(
+  db: Firestore,
+  uid: string,
+  awaiting: boolean
+): Promise<void> {
+  await db.doc(`conversationStates/${uid}`).set(
+    {
+      uid,
+      awaitingLanguage: awaiting ? true : FieldValue.delete(),
+      updatedAt: FieldValue.serverTimestamp(),
+    },
+    { merge: true }
+  );
+}
+
+async function setPreferredLanguage(
+  db: Firestore,
+  uid: string,
+  lang: Lang
+): Promise<void> {
+  await db.doc(`users/${uid}`).set({ preferredLanguage: lang }, { merge: true });
 }
 
 async function clearPendingIntroRequest(
@@ -127,22 +162,17 @@ async function setPendingAction(
   }
 }
 
-function isYes(text: string): boolean {
-  return /^(yes|y|yep|yeah|ok|okay|confirm|do it|go|sure)$/i.test(text.trim());
-}
+const isYes = isYesWord;
+const isNo = isNoWord;
 
-function isNo(text: string): boolean {
-  return /^(no|n|nope|cancel|stop that|abort|nah)$/i.test(text.trim());
-}
-
-// `create event`, `/event`, `new event`, `add event`, optionally with an inline
-// description after a colon or space. The optional rest gets parsed as the
-// description in the same turn so power users can one-shot it.
+// `create event`, `/event`, `new event`, `add event` (+ French: `créer
+// événement`, `nouvel événement`, `événement`), optionally with an inline
+// description. The optional rest is parsed as the description in the same turn.
 //
-// Plain `event …` without create/new/add OR a leading slash is rejected so
-// casual usage like "the event went well" doesn't trigger the wizard.
+// Plain English `event …` without create/new/add OR a leading slash is
+// rejected so "the event went well" doesn't trigger the wizard.
 const CREATE_EVENT_CMD_RE =
-  /^\s*(?:\/[\w-]*event|(?:create|new|add)[\s_-]?event)\b[:\s-]*(.*)$/i;
+  /^\s*(?:\/[\w-]*event|(?:create|new|add)[\s_-]?event|(?:cr[ée]er|nouvel|nouvelle|ajouter)[\s_-]?[ée]v[ée]nement|[ée]v[ée]nement)\b[:\s-]*(.*)$/i;
 
 function matchCreateEventCommand(text: string): { matched: boolean; rest: string } {
   const m = text.match(CREATE_EVENT_CMD_RE);
@@ -180,16 +210,12 @@ async function setEventCreation(
   }
 }
 
-const CREATE_EVENT_PROMPT =
-  "What's the event? One message — title, when, where. " +
-  "Example: \"Drinks tonight 8pm at Café Marly, max 12, open hang.\" " +
-  "Reply `cancel` to back out.";
-
-// `free now`, `free`, `free for 30`, `free for 1h`, `free for 90m`, etc.
-// Returns the availability window in minutes. Defaults to 60 if no duration
-// given. Doesn't match unrelated messages that merely start with "free"
-// followed by a word (e.g. "free advice?") — requires bare/now/for-number.
-const FREE_CMD_RE = /^\s*free(?:\s+now|\s+for\b.*|\s*)$/i;
+// `free now`, `free`, `free for 30`, `free for 1h`, `free for 90m`, plus the
+// French equivalents `libre`, `dispo`, `disponible` (+ same duration tail).
+// Returns the availability window in minutes (default 60). Doesn't match
+// "free advice?" / unrelated text — requires bare/now/for-number form.
+const FREE_CMD_RE =
+  /^\s*(?:free|libre|dispo|disponible)(?:\s+now|\s+(?:for|pour|pendant)\b.*|\s*)$/i;
 
 function parseFreeCommand(text: string): { matched: boolean; minutes: number } {
   const t = text.trim().toLowerCase();
@@ -378,8 +404,13 @@ function buildContextBlock(args: {
   eventMode?: boolean;
   freeNowMode?: boolean;
   freeUntilMs?: number;
+  lang: Lang;
 }): string {
   const lines: string[] = [];
+  // Language directive first — Claude's free-form replies must come back in
+  // the user's preferred language.
+  lines.push(claudeLanguageDirective(args.lang));
+  lines.push(``);
   if (args.freeNowMode) {
     const until = args.freeUntilMs ? formatParisHHMM(args.freeUntilMs) : "soon";
     lines.push(`# FREE_NOW_MODE (single-turn directive)`);
@@ -540,11 +571,61 @@ export async function processMessage(deps: ProcessMessageDeps): Promise<void> {
   const userSnap = await userRef.get();
   const userData = (userSnap.data() ?? {}) as UserDocLike;
   const displayName = userData.displayName;
+  const lang = normalizeLang(
+    (userData as Record<string, unknown>).preferredLanguage
+  );
 
-  // Onboarding gate — if the user hasn't completed the 3-question profile,
-  // every inbound message is treated as an answer to the current question.
-  // No Claude call until onboarding.step === "complete".
-  const onboarding = await runOnboardingStep(userRef, userData, body);
+  const convoState = await loadConvoState(db, uid);
+
+  // Language selection — handled before everything else so it always works.
+  // `language` / `langue` (bare) shows options + parks awaitingLanguage;
+  // `language fr` sets directly; a bare en/fr reply resolves a parked prompt.
+  const langCmd = parseLanguageCommand(body);
+  if (langCmd.matched) {
+    if (langCmd.lang) {
+      await setPreferredLanguage(db, uid, langCmd.lang);
+      await setAwaitingLanguage(db, uid, false);
+      const reply = msg(langCmd.lang).langSet(languageName(langCmd.lang));
+      await writeOutbox(db, { provider, uid, phone, chatId, body: reply, type: "language_set" });
+      await appendTurns(db, uid, [
+        { role: "user", content: body, at: Timestamp.now() },
+        { role: "assistant", content: reply, at: Timestamp.now() },
+      ]);
+      await inboxDoc.ref.update({ intent: "language_set" });
+      return;
+    }
+    await setAwaitingLanguage(db, uid, true);
+    const reply = msg(lang).langPrompt;
+    await writeOutbox(db, { provider, uid, phone, chatId, body: reply, type: "language_prompt" });
+    await appendTurns(db, uid, [
+      { role: "user", content: body, at: Timestamp.now() },
+      { role: "assistant", content: reply, at: Timestamp.now() },
+    ]);
+    await inboxDoc.ref.update({ intent: "language_prompt" });
+    return;
+  }
+  if (convoState.awaitingLanguage) {
+    const picked = parseLangReply(body);
+    if (picked) {
+      await setPreferredLanguage(db, uid, picked);
+      await setAwaitingLanguage(db, uid, false);
+      const reply = msg(picked).langSet(languageName(picked));
+      await writeOutbox(db, { provider, uid, phone, chatId, body: reply, type: "language_set" });
+      await appendTurns(db, uid, [
+        { role: "user", content: body, at: Timestamp.now() },
+        { role: "assistant", content: reply, at: Timestamp.now() },
+      ]);
+      await inboxDoc.ref.update({ intent: "language_set" });
+      return;
+    }
+    // Not a language pick — abandon the prompt and let the message flow on.
+    await setAwaitingLanguage(db, uid, false);
+  }
+
+  // Onboarding gate — if the user hasn't completed the profile, every inbound
+  // message is treated as an answer to the current question. LinkedIn users
+  // skip this. No Claude call until onboarding.step === "complete".
+  const onboarding = await runOnboardingStep(userRef, userData, body, lang);
   if (onboarding.handled) {
     await writeOutbox(db, {
       provider,
@@ -562,8 +643,6 @@ export async function processMessage(deps: ProcessMessageDeps): Promise<void> {
     return;
   }
 
-  const convoState = await loadConvoState(db, uid);
-
   // Incoming intro request — this user was asked to connect with someone and
   // owes a yes/no. Checked BEFORE their own pendingAction because the request
   // prompt is the most recent thing they saw, and someone is waiting on them.
@@ -571,7 +650,7 @@ export async function processMessage(deps: ProcessMessageDeps): Promise<void> {
   if (incomingIntro) {
     if (isYes(body)) {
       const result = await acceptIntroRequest(
-        { db, uid, userData: userData as Record<string, unknown> },
+        { db, uid, userData: userData as Record<string, unknown>, lang },
         incomingIntro
       );
       await clearPendingIntroRequest(db, uid);
@@ -585,7 +664,7 @@ export async function processMessage(deps: ProcessMessageDeps): Promise<void> {
     }
     if (isNo(body)) {
       const result = await declineIntroRequest(
-        { db, uid, userData: userData as Record<string, unknown> },
+        { db, uid, userData: userData as Record<string, unknown>, lang },
         incomingIntro
       );
       await clearPendingIntroRequest(db, uid);
@@ -609,7 +688,7 @@ export async function processMessage(deps: ProcessMessageDeps): Promise<void> {
   if (pending) {
     if (isYes(body)) {
       const result = await executePendingAction(
-        { db, uid, userData: userData as Record<string, unknown> },
+        { db, uid, userData: userData as Record<string, unknown>, lang },
         pending
       );
       await setPendingAction(db, uid, null);
@@ -630,7 +709,7 @@ export async function processMessage(deps: ProcessMessageDeps): Promise<void> {
     }
     if (isNo(body)) {
       await setPendingAction(db, uid, null);
-      const cancelMsg = "Cancelled.";
+      const cancelMsg = msg(lang).cancelled;
       await writeOutbox(db, {
         provider,
         uid,
@@ -671,17 +750,18 @@ export async function processMessage(deps: ProcessMessageDeps): Promise<void> {
   if (createCmd.matched) {
     if (!createCmd.rest) {
       await setEventCreation(db, uid, "awaiting_description");
+      const promptMsg = msg(lang).createEventPrompt;
       await writeOutbox(db, {
         provider,
         uid,
         phone,
         chatId,
-        body: CREATE_EVENT_PROMPT,
+        body: promptMsg,
         type: "event_wizard_prompt",
       });
       await appendTurns(db, uid, [
         { role: "user", content: body, at: Timestamp.now() },
-        { role: "assistant", content: CREATE_EVENT_PROMPT, at: Timestamp.now() },
+        { role: "assistant", content: promptMsg, at: Timestamp.now() },
       ]);
       await inboxDoc.ref.update({ intent: "event_wizard_started" });
       return;
@@ -689,9 +769,9 @@ export async function processMessage(deps: ProcessMessageDeps): Promise<void> {
     eventMode = true;
     claudeBody = createCmd.rest;
   } else if (convoState.eventCreation?.step === "awaiting_description") {
-    if (/^(cancel|nvm|skip|abort)$/i.test(body)) {
+    if (/^(cancel|nvm|skip|abort|annuler|annule|laisse tomber)$/i.test(body)) {
       await setEventCreation(db, uid, null);
-      const cancelMsg = "Cancelled.";
+      const cancelMsg = msg(lang).cancelled;
       await writeOutbox(db, {
         provider,
         uid,
@@ -756,6 +836,7 @@ export async function processMessage(deps: ProcessMessageDeps): Promise<void> {
     eventMode,
     freeNowMode,
     freeUntilMs,
+    lang,
   });
 
   const rawReply = await runClaude(claudeBody, directoryBlock, volatileBlock);

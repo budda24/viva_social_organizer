@@ -11,6 +11,7 @@
 
 import type { DocumentReference } from "firebase-admin/firestore";
 import { FieldValue } from "firebase-admin/firestore";
+import type { Lang } from "./i18n.js";
 
 export type OnboardingStep =
   | "pending"        // never asked; emit first question, advance
@@ -19,6 +20,7 @@ export type OnboardingStep =
   | "self_do"        // enrichment failed → asked "what do you do", awaiting bio
   | "self_topics"    // asked topics, awaiting comma list
   | "self_meet"      // asked who to meet, awaiting answer
+  | "self_linkedin"  // asked for LinkedIn URL (skippable), awaiting answer
   | "complete";
 
 export interface OnboardingState {
@@ -29,6 +31,7 @@ export interface OnboardingState {
   // only on the final answer so nothing half-filled leaks to the directory.
   draftBio?: string;
   draftTopics?: string[];
+  draftMatchSignals?: string;
 }
 
 export interface UserDocLike {
@@ -64,55 +67,149 @@ export interface OnboardingOutcome {
 // the user's *intent* for this specific event and their *energy* preference.
 // Bio, topics, company etc. are filled by the async enrichment worker.
 
-const ASK_GOAL =
-  "Welcome to Viva Tribe! I'll match you with humans at VivaTech.\n\n" +
-  "2 quick questions — then you're set.\n\n" +
-  "1/2 — what's your goal at VivaTech? One line. Like \"meet European AI VCs\", " +
-  "\"sell to enterprise CFOs\", or \"find a co-founder\".";
+// Bilingual onboarding strings (English + French — VivaTech is in Paris).
+interface OnboardingStrings {
+  askGoal: string;
+  needGoal: string;
+  askEnergy: string;
+  needEnergy: string;
+  complete: string;
+  optedOut: string;
+  askSelfDo: string;
+  needSelfDo: string;
+  askSelfTopics: string;
+  needSelfTopics: string;
+  askSelfMeet: string;
+  needSelfMeet: string;
+  askSelfLinkedin: string;
+  needSelfLinkedin: string;
+  selfComplete: string;
+}
 
-const ASK_ENERGY =
-  "2/2 — how do you like to meet people? Reply with one word:\n" +
-  "• `1on1` — quiet 1-on-1 convos\n" +
-  "• `group` — mixers, dinners, lounges\n" +
-  "• `both`";
+const OB_EN: OnboardingStrings = {
+  askGoal:
+    "Welcome to Viva Tribe! I'll match you with humans at VivaTech.\n\n" +
+    "2 quick questions — then you're set.\n\n" +
+    '1/2 — what\'s your goal at VivaTech? One line. Like "meet European AI VCs", ' +
+    '"sell to enterprise CFOs", or "find a co-founder".',
+  needGoal: "Need one line on your goal. ",
+  askEnergy:
+    "2/2 — how do you like to meet people? Reply with one word:\n" +
+    "• `1on1` — quiet 1-on-1 convos\n" +
+    "• `group` — mixers, dinners, lounges\n" +
+    "• `both`",
+  needEnergy: "Reply `1on1`, `group`, or `both`. ",
+  complete:
+    "All set ✓\n\n" +
+    "I'm pulling your professional profile from the web in the background — should be ready in a minute.\n\n" +
+    "In the meantime, try:\n" +
+    "• find me a buddy — someone to explore VivaTech with\n" +
+    "• find me <topic> — specific people\n" +
+    "• who is here\n" +
+    "• free for 30",
+  optedOut: "Opted out. You won't hear from me again. Reply anything to come back.",
+  askSelfDo:
+    "I couldn't auto-build your profile from the web, so 4 quick questions to match you well.\n\n" +
+    "1/4 — In one line, what do you do?",
+  needSelfDo: "One line on what you do. ",
+  askSelfTopics:
+    '2/4 — Your areas/topics? Comma-separated. E.g. "AI, climate, fintech".',
+  needSelfTopics: "List a few, comma-separated. ",
+  askSelfMeet: "3/4 — Who do you want to meet at VivaTech? One line.",
+  needSelfMeet: "One line on who you want to meet. ",
+  askSelfLinkedin:
+    "4/4 — Your LinkedIn URL? People you ask to meet can check you out before saying yes. " +
+    "Paste it, or reply skip.",
+  needSelfLinkedin:
+    "That didn't look like a LinkedIn URL. Paste a linkedin.com/in/… link, or reply skip. ",
+  selfComplete:
+    "All set ✓ Matching you now.\n\n" +
+    "Try:\n" +
+    "• find me a buddy\n" +
+    "• find me <topic>\n" +
+    "• who is here",
+};
 
-const COMPLETE =
-  "All set ✓\n\n" +
-  "I'm pulling your professional profile from the web in the background — should be ready in a minute.\n\n" +
-  "In the meantime, try:\n" +
-  "• find me a buddy — someone to explore VivaTech with\n" +
-  "• find me <topic> — specific people\n" +
-  "• who is here\n" +
-  "• free for 30";
+const OB_FR: OnboardingStrings = {
+  askGoal:
+    "Bienvenue dans Viva Tribe ! Je te mets en relation avec les bonnes personnes à VivaTech.\n\n" +
+    "2 questions rapides — et c'est bon.\n\n" +
+    "1/2 — quel est ton objectif à VivaTech ? En une ligne. Par ex. « rencontrer des VC IA européens », " +
+    "« vendre à des DAF grands comptes », ou « trouver un·e cofondateur·rice ».",
+  needGoal: "Donne-moi une ligne sur ton objectif. ",
+  askEnergy:
+    "2/2 — comment aimes-tu rencontrer les gens ? Réponds en un mot :\n" +
+    "• `1on1` — échanges en tête-à-tête\n" +
+    "• `group` — mixers, dîners, lounges\n" +
+    "• `both` — les deux",
+  needEnergy: "Réponds `1on1`, `group`, ou `both`. ",
+  complete:
+    "C'est tout bon ✓\n\n" +
+    "Je récupère ton profil professionnel sur le web en arrière-plan — prêt dans une minute.\n\n" +
+    "En attendant, essaie :\n" +
+    "• trouve-moi un binôme — quelqu'un avec qui explorer VivaTech\n" +
+    "• trouve-moi <sujet> — des personnes précises\n" +
+    "• qui est là\n" +
+    "• libre 30",
+  optedOut:
+    "Désinscrit·e. Tu ne recevras plus de messages. Réponds n'importe quoi pour revenir.",
+  askSelfDo:
+    "Je n'ai pas pu construire ton profil depuis le web, alors 4 questions rapides pour bien te matcher.\n\n" +
+    "1/4 — En une ligne, que fais-tu ?",
+  needSelfDo: "Une ligne sur ce que tu fais. ",
+  askSelfTopics:
+    '2/4 — Tes domaines/sujets ? Séparés par des virgules. Ex. « IA, climat, fintech ».',
+  needSelfTopics: "Cites-en quelques-uns, séparés par des virgules. ",
+  askSelfMeet: "3/4 — Qui veux-tu rencontrer à VivaTech ? En une ligne.",
+  needSelfMeet: "Une ligne sur qui tu veux rencontrer. ",
+  askSelfLinkedin:
+    "4/4 — Ton URL LinkedIn ? Les personnes que tu demandes à rencontrer pourront te vérifier avant d'accepter. " +
+    "Colle-la, ou réponds passer.",
+  needSelfLinkedin:
+    "Ça ne ressemblait pas à une URL LinkedIn. Colle un lien linkedin.com/in/…, ou réponds passer. ",
+  selfComplete:
+    "C'est tout bon ✓ Je te matche maintenant.\n\n" +
+    "Essaie :\n" +
+    "• trouve-moi un binôme\n" +
+    "• trouve-moi <sujet>\n" +
+    "• qui est là",
+};
 
-const OPTED_OUT = "Opted out. You won't hear from me again. Reply anything to come back.";
+function ob(lang: Lang): OnboardingStrings {
+  return lang === "fr" ? OB_FR : OB_EN;
+}
 
 function parseEnergy(text: string): "1on1" | "group" | "both" | null {
   const t = text.trim().toLowerCase().replace(/[^a-z0-9]/g, "");
   if (["1on1", "1to1", "oneonone", "one"].includes(t)) return "1on1";
-  if (["group", "mixer", "mixers", "social"].includes(t)) return "group";
-  if (["both", "all", "either"].includes(t)) return "both";
+  if (["group", "mixer", "mixers", "social", "groupe"].includes(t)) return "group";
+  if (["both", "all", "either", "lesdeux", "deux", "tous"].includes(t)) return "both";
   return null;
 }
 
-// Self-profile interview — the fallback when web enrichment can't confidently
-// identify someone. We collect the same fields enrichment would have produced,
-// straight from the person, so the matcher + directory keep working.
-const ASK_SELF_DO =
-  "I couldn't auto-build your profile from the web, so 3 quick questions to match you well.\n\n" +
-  "1/3 — In one line, what do you do?";
-const ASK_SELF_TOPICS =
-  '2/3 — Your areas/topics? Comma-separated. E.g. "AI, climate, fintech".';
-const ASK_SELF_MEET =
-  "3/3 — Who do you want to meet at VivaTech? One line.";
-const SELF_COMPLETE =
-  "All set ✓ Matching you now.\n\n" +
-  "Try:\n" +
-  "• find me a buddy\n" +
-  "• find me <topic>\n" +
-  "• who is here";
+const SELF_STEPS: OnboardingStep[] = [
+  "self_do",
+  "self_topics",
+  "self_meet",
+  "self_linkedin",
+];
 
-const SELF_STEPS: OnboardingStep[] = ["self_do", "self_topics", "self_meet"];
+function isSkipWord(text: string): boolean {
+  return /^(skip|pass|passer|non|no|aucun|—|-)$/i.test(text.trim());
+}
+
+// Extract + normalize a LinkedIn profile URL from free text. Accepts a full or
+// partial linkedin.com/in/… link (with or without scheme/subdomain). Returns
+// null if nothing LinkedIn-shaped is found.
+function parseLinkedinUrl(text: string): string | null {
+  const m = text
+    .trim()
+    .match(/(?:https?:\/\/)?(?:[\w-]+\.)?linkedin\.com\/in\/[^\s]+/i);
+  if (!m) return null;
+  let url = m[0].replace(/[.,;]+$/, "");
+  if (!/^https?:\/\//i.test(url)) url = "https://" + url;
+  return url.slice(0, 300);
+}
 
 function parseTopics(text: string): string[] {
   return text
@@ -138,41 +235,63 @@ async function runSelfInterview(
   userRef: DocumentReference,
   userDoc: UserDocLike,
   trimmed: string,
-  step: OnboardingStep
+  step: OnboardingStep,
+  lang: Lang
 ): Promise<OnboardingOutcome> {
+  const s = ob(lang);
   switch (step) {
     case "self_do": {
       const bio = trimmed.slice(0, 200);
-      if (!bio) return { handled: true, reply: "One line on what you do. " + ASK_SELF_DO };
+      if (!bio) return { handled: true, reply: s.needSelfDo + s.askSelfDo };
       await userRef.set(
         { onboarding: { step: "self_topics", draftBio: bio } },
         { merge: true }
       );
-      return { handled: true, reply: ASK_SELF_TOPICS };
+      return { handled: true, reply: s.askSelfTopics };
     }
 
     case "self_topics": {
       const topics = parseTopics(trimmed);
       if (topics.length === 0) {
-        return { handled: true, reply: "List a few, comma-separated. " + ASK_SELF_TOPICS };
+        return { handled: true, reply: s.needSelfTopics + s.askSelfTopics };
       }
       await userRef.set(
         { onboarding: { step: "self_meet", draftTopics: topics } },
         { merge: true }
       );
-      return { handled: true, reply: ASK_SELF_MEET };
+      return { handled: true, reply: s.askSelfMeet };
     }
 
     case "self_meet": {
       const matchSignals = trimmed.slice(0, 200);
       if (!matchSignals) {
-        return { handled: true, reply: "One line on who you want to meet. " + ASK_SELF_MEET };
+        return { handled: true, reply: s.needSelfMeet + s.askSelfMeet };
       }
+      await userRef.set(
+        { onboarding: { step: "self_linkedin", draftMatchSignals: matchSignals } },
+        { merge: true }
+      );
+      return { handled: true, reply: s.askSelfLinkedin };
+    }
+
+    case "self_linkedin": {
+      let linkedinUrl: string | null = null;
+      if (!isSkipWord(trimmed)) {
+        linkedinUrl = parseLinkedinUrl(trimmed);
+        // Non-skip, non-URL input → re-ask once rather than storing garbage.
+        if (!linkedinUrl) {
+          return { handled: true, reply: s.needSelfLinkedin + s.askSelfLinkedin };
+        }
+      }
+
       const draftBio = userDoc.onboarding?.draftBio ?? "";
       const draftTopics = userDoc.onboarding?.draftTopics ?? [];
+      const draftMatchSignals = userDoc.onboarding?.draftMatchSignals ?? "";
       // Write into the same enrichment fields the matcher + web directory read.
       // source:"self" + publishable:true — self-reported data is authoritative,
       // so it's safe to publish and flips needsSelfProfile() back to false.
+      // linkedinUrl mirrors what the enrichment worker would have stored, so
+      // the intro-request flow can show it to people deciding whether to meet.
       await userRef.set(
         {
           enrichment: {
@@ -182,9 +301,13 @@ async function runSelfInterview(
             publishable: true,
             bio: draftBio,
             topics: draftTopics,
-            matchSignals,
+            matchSignals: draftMatchSignals,
+            linkedinUrl: linkedinUrl ?? null,
             completedAt: FieldValue.serverTimestamp(),
           },
+          // Top-level mirror so linkedinUrlOf() finds it even if enrichment
+          // is later overwritten by a web pass.
+          ...(linkedinUrl ? { linkedinUrl } : {}),
           onboarding: {
             step: "complete",
             completedAt: FieldValue.serverTimestamp(),
@@ -192,7 +315,7 @@ async function runSelfInterview(
         },
         { merge: true }
       );
-      return { handled: true, reply: SELF_COMPLETE };
+      return { handled: true, reply: s.selfComplete };
     }
 
     default:
@@ -203,23 +326,25 @@ async function runSelfInterview(
 export async function runOnboardingStep(
   userRef: DocumentReference,
   userDoc: UserDocLike,
-  userMessage: string
+  userMessage: string,
+  lang: Lang = "en"
 ): Promise<OnboardingOutcome> {
   const trimmed = userMessage.trim();
   const step: OnboardingStep = userDoc.onboarding?.step ?? "pending";
+  const s = ob(lang);
 
   // Universal escape hatch — `stop` always works.
-  if (/^stop$/i.test(trimmed)) {
+  if (/^stop$|^arrêt|^arret/i.test(trimmed)) {
     await userRef.set(
       { status: "opted_out", optedOutAt: FieldValue.serverTimestamp() },
       { merge: true }
     );
-    return { handled: true, reply: OPTED_OUT };
+    return { handled: true, reply: s.optedOut };
   }
 
   // In-chat self-profile interview already running — keep collecting answers.
   if (SELF_STEPS.includes(step)) {
-    return runSelfInterview(userRef, userDoc, trimmed, step);
+    return runSelfInterview(userRef, userDoc, trimmed, step, lang);
   }
 
   // Enrichment settled but produced no usable profile → collect it in chat so
@@ -231,7 +356,7 @@ export async function runOnboardingStep(
       { onboarding: { step: "self_do", startedAt: FieldValue.serverTimestamp() } },
       { merge: true }
     );
-    return { handled: true, reply: ASK_SELF_DO };
+    return { handled: true, reply: s.askSelfDo };
   }
 
   // LinkedIn login is the approval gate — these users skip the 2-question
@@ -271,16 +396,13 @@ export async function runOnboardingStep(
         },
         { merge: true }
       );
-      return { handled: true, reply: ASK_GOAL };
+      return { handled: true, reply: s.askGoal };
     }
 
     case "ask_goal": {
       const goal = trimmed.slice(0, 240);
       if (!goal) {
-        return {
-          handled: true,
-          reply: "Need one line on your goal. " + ASK_GOAL,
-        };
+        return { handled: true, reply: s.needGoal + s.askGoal };
       }
       // Use nested-object syntax — dot-notation keys in set({...}, {merge}) are
       // treated as LITERAL field names by the Admin SDK, not field paths.
@@ -288,16 +410,13 @@ export async function runOnboardingStep(
         { goal, onboarding: { step: "ask_energy" } },
         { merge: true }
       );
-      return { handled: true, reply: ASK_ENERGY };
+      return { handled: true, reply: s.askEnergy };
     }
 
     case "ask_energy": {
       const energy = parseEnergy(trimmed);
       if (!energy) {
-        return {
-          handled: true,
-          reply: "Reply `1on1`, `group`, or `both`. " + ASK_ENERGY,
-        };
+        return { handled: true, reply: s.needEnergy + s.askEnergy };
       }
       await userRef.set(
         {
@@ -309,7 +428,7 @@ export async function runOnboardingStep(
         },
         { merge: true }
       );
-      return { handled: true, reply: COMPLETE };
+      return { handled: true, reply: s.complete };
     }
 
     default: {
@@ -318,7 +437,7 @@ export async function runOnboardingStep(
         { onboarding: { step: "pending" } },
         { merge: true }
       );
-      return { handled: true, reply: ASK_GOAL };
+      return { handled: true, reply: s.askGoal };
     }
   }
 }

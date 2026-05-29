@@ -21,6 +21,7 @@
 
 import type { Firestore } from "firebase-admin/firestore";
 import { FieldValue, Timestamp } from "firebase-admin/firestore";
+import { msg, normalizeLang, type Lang } from "./i18n.js";
 
 const KIND_ENUM = [
   "breakfast",
@@ -190,28 +191,33 @@ async function enqueueOutbox(
   await db.collection("whatsappOutbox").add(row);
 }
 
-function formatEventAnnouncement(args: {
-  hostName: string;
-  title: string;
-  kind: EventKind;
-  startAtISO: string;
-  addressNeighborhood?: string;
-  addressFull?: string;
-  description?: string;
-}): string {
-  const when = formatParisTime(args.startAtISO);
+// Build the broadcast in a specific recipient's language. The bot announces
+// the same event to everyone, but each person reads it in their own language.
+function formatEventAnnouncement(
+  lang: Lang,
+  args: {
+    hostName: string;
+    title: string;
+    kind: EventKind;
+    startAtISO: string;
+    addressNeighborhood?: string;
+    addressFull?: string;
+    description?: string;
+  }
+): string {
+  const when = formatParisTime(args.startAtISO, lang);
   const place =
     args.addressFull ??
     args.addressNeighborhood ??
-    "(location TBC — RSVP for details)";
-  const lines = [
-    `${kindEmoji(args.kind)} ${args.title}`,
-    `${when} · ${place}`,
-    `Hosted by ${args.hostName}.`,
-  ];
-  if (args.description) lines.push(args.description);
-  lines.push(`Reply "join ${args.title}" to RSVP.`);
-  return lines.join("\n");
+    (lang === "fr" ? "(lieu à confirmer)" : "(location TBC)");
+  return msg(lang).eventAnnounce({
+    emoji: kindEmoji(args.kind),
+    title: args.title,
+    when,
+    place,
+    hostName: args.hostName,
+    description: args.description,
+  });
 }
 
 function kindEmoji(k: EventKind): string {
@@ -237,11 +243,9 @@ function kindEmoji(k: EventKind): string {
   }
 }
 
-function formatParisTime(iso: string): string {
-  // Format the start time as a short human string for Paris readers. The
-  // Intl API will use the locale's 24h conventions for fr-FR.
+function formatParisTime(iso: string, lang: Lang = "en"): string {
   try {
-    return new Intl.DateTimeFormat("en-GB", {
+    return new Intl.DateTimeFormat(lang === "fr" ? "fr-FR" : "en-GB", {
       timeZone: "Europe/Paris",
       weekday: "short",
       day: "numeric",
@@ -259,6 +263,7 @@ interface ExecuteDeps {
   db: Firestore;
   uid: string;
   userData: Record<string, unknown>;
+  lang: Lang;
 }
 
 interface ExecuteResult {
@@ -299,17 +304,7 @@ async function executeCreateEvent(
     at: FieldValue.serverTimestamp(),
   });
 
-  // Broadcast to every other approved member.
-  const announcement = formatEventAnnouncement({
-    hostName,
-    title: action.title,
-    kind: action.kind_enum,
-    startAtISO: action.startAtISO,
-    addressNeighborhood: action.addressNeighborhood,
-    addressFull: action.addressFull,
-    description: action.description,
-  });
-
+  // Broadcast to every other approved member, each in their own language.
   const members = await db
     .collection("users")
     .where("status", "==", "approved")
@@ -320,11 +315,22 @@ async function executeCreateEvent(
   await Promise.all(
     members.docs.map(async (doc) => {
       if (doc.id === uid) return;
-      const route = pickChannel(doc.data());
+      const data = doc.data();
+      const route = pickChannel(data);
       if (!route) {
         skipped += 1;
         return;
       }
+      const recipientLang = normalizeLang(data.preferredLanguage);
+      const announcement = formatEventAnnouncement(recipientLang, {
+        hostName,
+        title: action.title,
+        kind: action.kind_enum,
+        startAtISO: action.startAtISO,
+        addressNeighborhood: action.addressNeighborhood,
+        addressFull: action.addressFull,
+        description: action.description,
+      });
       await enqueueOutbox(db, {
         recipientUid: doc.id,
         route,
@@ -337,9 +343,8 @@ async function executeCreateEvent(
     })
   );
 
-  const skipNote = skipped > 0 ? ` (${skipped} unreachable)` : "";
   return {
-    reply: `✓ "${action.title}" created. Pinging ${pinged} members${skipNote}.`,
+    reply: msg(deps.lang).eventCreated(action.title, pinged, skipped),
   };
 }
 
@@ -349,6 +354,15 @@ function bioLine(userData: Record<string, unknown>): string {
   const enr = (userData.enrichment ?? {}) as Record<string, unknown>;
   const bio = (enr.bio as string) || (userData.bio as string) || "";
   return bio.slice(0, 90);
+}
+
+// The requester's public LinkedIn URL, so the buddy can vet them before
+// accepting. Sourced from the enrichment worker (which web-searches it) — only
+// present when enrichment confidently identified the person.
+function linkedinUrlOf(userData: Record<string, unknown>): string | undefined {
+  const enr = (userData.enrichment ?? {}) as Record<string, unknown>;
+  const url = (enr.linkedinUrl as string) || (userData.linkedinUrl as string);
+  return url && url.trim() ? url.trim() : undefined;
 }
 
 // A shareable contact handle. Telegram usernames (t.me links) are designed to
@@ -372,12 +386,13 @@ function contactHandle(
 }
 
 function contactText(
+  lang: Lang,
   name: string,
   handle: { label: string; link?: string }
 ): string {
   if (handle.link) return `${name} → ${handle.link}`;
   if (handle.label) return `${name} → ${handle.label}`;
-  return `${name} (they'll reach out to you)`;
+  return msg(lang).contactReachesOut(name);
 }
 
 // Step 1 of the double-opt-in intro. The requester (A) confirmed `yes` on a
@@ -438,11 +453,18 @@ async function executeIntroBuddy(
     { merge: true }
   );
 
+  // The request goes to B, so it's in B's language; the confirmation goes
+  // back to A (the requester), so it's in A's language (deps.lang). Include
+  // A's LinkedIn URL so B can vet them before accepting.
+  const recipientLang = normalizeLang(targetData.preferredLanguage);
   const fromBio = bioLine(userData);
-  const requestBody =
-    `${sourceName}${fromBio ? ` (${fromBio})` : ""} wants to connect 👋\n\n` +
-    `"${action.opener}"\n\n` +
-    `Reply yes to swap contacts, or no to pass.`;
+  const fromLinkedin = linkedinUrlOf(userData);
+  const requestBody = msg(recipientLang).introRequest(
+    sourceName,
+    fromBio,
+    action.opener,
+    fromLinkedin
+  );
 
   await enqueueOutbox(db, {
     recipientUid: action.targetUid,
@@ -452,9 +474,7 @@ async function executeIntroBuddy(
     sourceUid: uid,
   });
 
-  return {
-    reply: `Sent your request to ${targetName}. I'll let you know if they're in.`,
-  };
+  return { reply: msg(deps.lang).introSent(targetName) };
 }
 
 // Step 2a — the buddy (B, = deps.uid) accepted. Share contacts both ways.
@@ -472,33 +492,36 @@ export async function acceptIntroRequest(
 
   const fromSnap = await db.doc(`users/${req.fromUid}`).get();
   if (!fromSnap.exists) {
-    return { reply: `That request expired — the other person isn't reachable.` };
+    return { reply: msg(deps.lang).introRequestExpired };
   }
   const fromData = fromSnap.data() ?? {};
   const fromName = (fromData.displayName as string | undefined) ?? req.fromName ?? "They";
+  const fromLang = normalizeLang(fromData.preferredLanguage);
 
   const accepterHandle = contactHandle(userData);
   const fromHandle = contactHandle(fromData);
 
-  // Tell the requester (A) it was accepted, with B's contact.
+  // Tell the requester (A) it was accepted, with B's contact — in A's language.
   const fromRoute = pickChannel(fromData);
   if (fromRoute) {
     await enqueueOutbox(db, {
       recipientUid: req.fromUid,
       route: fromRoute,
-      body:
-        `${accepterName} accepted your intro 🎉\n\n` +
-        `Reach them — ${contactText(accepterName, accepterHandle)}`,
+      body: msg(fromLang).introAccepted(
+        accepterName,
+        contactText(fromLang, accepterName, accepterHandle)
+      ),
       type: "intro_accepted",
       sourceUid: uid,
     });
   }
 
-  // Reply to the accepter (B) with A's contact.
+  // Reply to the accepter (B) with A's contact — in B's language (deps.lang).
   return {
-    reply:
-      `Connected with ${fromName} 🎉\n\n` +
-      `Reach them — ${contactText(fromName, fromHandle)}`,
+    reply: msg(deps.lang).introConnected(
+      fromName,
+      contactText(deps.lang, fromName, fromHandle)
+    ),
   };
 }
 
@@ -522,16 +545,14 @@ export async function declineIntroRequest(
       await enqueueOutbox(db, {
         recipientUid: req.fromUid,
         route: fromRoute,
-        body:
-          `Your intro request didn't connect this time. ` +
-          `Plenty more people to meet — try \`find me a buddy\`.`,
+        body: msg(normalizeLang(fromData.preferredLanguage)).introDeclined,
         type: "intro_declined",
         sourceUid: uid,
       });
     }
   }
 
-  return { reply: `No problem — I won't share your contact. Passed.` };
+  return { reply: msg(deps.lang).introPassed };
 }
 
 export async function executePendingAction(

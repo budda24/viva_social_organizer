@@ -13,6 +13,13 @@ interface TgUser {
   username?: string;
   first_name?: string;
   last_name?: string;
+  language_code?: string;
+}
+
+// Telegram sends an IETF tag like "fr", "fr-FR", "en-US". We support EN + FR;
+// anything else defaults to English.
+function langFromTelegram(code: string | undefined): "en" | "fr" {
+  return (code ?? "").toLowerCase().startsWith("fr") ? "fr" : "en";
 }
 interface TgChat {
   id: number;
@@ -80,6 +87,7 @@ export const telegramWebhook = onRequest(
       [message.from?.first_name, message.from?.last_name].filter(Boolean).join(" ") ||
       username ||
       undefined;
+    const lang = langFromTelegram(message.from?.language_code);
 
     const db = getFirestore();
 
@@ -92,6 +100,7 @@ export const telegramWebhook = onRequest(
         chatId,
         username,
         displayName,
+        lang,
       });
       if (!handled.ok) {
         console.warn(`[telegramWebhook] /start failed: ${handled.reason}`);
@@ -171,8 +180,9 @@ async function handleStart(args: {
   chatId: number;
   username?: string;
   displayName?: string;
+  lang: "en" | "fr";
 }): Promise<StartResult> {
-  const { db, code, chatId, username, displayName } = args;
+  const { db, code, chatId, username, displayName, lang } = args;
 
   if (!INVITE_CODE_PATTERN.test(code)) {
     return {
@@ -220,15 +230,27 @@ async function handleStart(args: {
       };
     }
 
+    // Respect a language the user already chose in-bot; otherwise use the
+    // Telegram-detected locale.
+    const existingLang = userSnap.data()?.preferredLanguage as
+      | string
+      | undefined;
+    const effectiveLang: "en" | "fr" =
+      existingLang === "fr" || existingLang === "en"
+        ? existingLang
+        : lang;
+
     // Bind chat and mark onboarding complete — LinkedIn login is the
     // approved-membership gate, so we skip the goal/energy questions and
     // greet with the command menu instead. The bot brain treats step=complete
-    // as "skip onboarding, go straight to Claude".
+    // as "skip onboarding, go straight to Claude". preferredLanguage seeds the
+    // bot's localization (changeable later via the `language` command).
     tx.update(userRef, {
       telegramChatId: chatId,
       telegramUsername: username ?? null,
       telegramDisplayName: displayName ?? null,
       telegramBoundAt: FieldValue.serverTimestamp(),
+      preferredLanguage: effectiveLang,
       "onboarding.step": "complete",
       "onboarding.completedAt": FieldValue.serverTimestamp(),
     });
@@ -236,15 +258,27 @@ async function handleStart(args: {
     const greetingName =
       (userSnap.data()?.displayName as string | undefined) ?? displayName ?? "there";
     const reply =
-      `Welcome ${greetingName}! I'm Tribu — I help you meet the right humans at VivaTech.\n\n` +
-      "Here's what I can do:\n" +
-      "• find me a buddy — someone to explore VivaTech with\n" +
-      "• find me <topic> — specific people (e.g. \"find me a climate VC\")\n" +
-      "• create event — propose a micro-event (I'll ping everyone)\n" +
-      "• who is here — see active members\n" +
-      "• free for 30 — set your availability\n" +
-      "• help — see this menu again\n" +
-      "• stop — opt out";
+      effectiveLang === "fr"
+        ? `Bienvenue ${greetingName} ! Je suis Tribu — je t'aide à rencontrer les bonnes personnes à VivaTech.\n\n` +
+          "Voici ce que je peux faire :\n" +
+          "• trouve-moi un binôme — quelqu'un avec qui explorer VivaTech\n" +
+          "• trouve-moi <sujet> — des personnes précises (ex. « trouve-moi un VC climat »)\n" +
+          "• créer événement — propose un rendez-vous (je préviens tout le monde)\n" +
+          "• qui est là — voir les membres actifs\n" +
+          "• libre 30 — signale que tu es dispo\n" +
+          "• langue — changer English / Français\n" +
+          "• help — revoir ce menu\n" +
+          "• stop — ne plus recevoir de messages"
+        : `Welcome ${greetingName}! I'm Tribu — I help you meet the right humans at VivaTech.\n\n` +
+          "Here's what I can do:\n" +
+          "• find me a buddy — someone to explore VivaTech with\n" +
+          "• find me <topic> — specific people (e.g. \"find me a climate VC\")\n" +
+          "• create event — propose a micro-event (I'll ping everyone)\n" +
+          "• who is here — see active members\n" +
+          "• free for 30 — set your availability\n" +
+          "• language — switch English / Français\n" +
+          "• help — see this menu again\n" +
+          "• stop — opt out";
     tx.set(db.collection("whatsappOutbox").doc(), {
       recipientType: "individual",
       recipientUid: uid,
