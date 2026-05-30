@@ -45,6 +45,10 @@ web/build/
 # Hosting assembled output
 dist/
 
+# Local tooling artifacts
+.playwright-mcp/
+landing.png
+
 # OS
 .DS_Store
 Thumbs.db

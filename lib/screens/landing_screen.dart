@@ -6,6 +6,7 @@ import '../theme/app_colors.dart';
 import '../theme/app_theme.dart';
 import '../widgets/app_scaffold.dart';
 import '../widgets/bot_demo_card.dart';
+import '../widgets/happening_events_section.dart';
 import '../widgets/primary_button.dart';
 import '../widgets/speaker_card.dart';
 import '../widgets/status_pill.dart';
@@ -30,6 +31,8 @@ class LandingScreen extends StatelessWidget {
             _Hero(isCompact: isCompact, onInvite: () => Navigator.of(context).pushNamed('/in')),
             const SizedBox(height: 56),
             const _BotDemos(),
+            const SizedBox(height: 64),
+            const HappeningEventsSection(),
             const SizedBox(height: 64),
             const _SpeakersHeader(),
             const SizedBox(height: 20),
