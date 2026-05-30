@@ -266,14 +266,19 @@ class _BotDemos extends StatelessWidget {
     ];
 
     if (width < 760) {
-      return SizedBox(
-        height: 540,
-        child: ListView.separated(
-          scrollDirection: Axis.horizontal,
-          padding: EdgeInsets.zero,
-          itemCount: demos.length,
-          separatorBuilder: (_, _) => const SizedBox(width: 16),
-          itemBuilder: (_, i) => SizedBox(width: 280, child: demos[i]),
+      // Carousel sizes to the tallest card's natural height so the caption
+      // beneath each demo is always visible. A fixed height clipped the
+      // longest card ("Find people") and hid its caption.
+      return SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            for (var i = 0; i < demos.length; i++) ...[
+              if (i > 0) const SizedBox(width: 16),
+              SizedBox(width: 280, child: demos[i]),
+            ],
+          ],
         ),
       );
     }
