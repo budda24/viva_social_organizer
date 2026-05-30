@@ -7,7 +7,12 @@ setGlobalOptions({ region: "europe-central2", maxInstances: 10 });
 export { redeemInviteCode } from "./invites/redeem";
 export { bootstrapUserProfile } from "./users/bootstrap";
 export { linkedinSignIn } from "./users/linkedin";
-export { enrichUser } from "./users/enrich";
+// === Enrichment routed to the LOCAL laptop brain (free Qwen+SearXNG), not the paid
+// Sonnet+web_search Cloud Function. Retired 2026-05-30 per Franek: enrichment must be
+// local + free. Load test verified the local path matches quality on matching-critical
+// fields, attaches no wrong-person data, and is more reliable than this CF was.
+// To re-enable the paid CF, uncomment and redeploy. also `firebase functions:delete enrichUser`d.
+// export { enrichUser } from "./users/enrich";
 export { reclaimStaleInbox } from "./bot/reclaimInbox";
 
 // === Twilio WhatsApp (Sandbox) — fallback channel ===

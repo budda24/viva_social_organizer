@@ -50,7 +50,7 @@ const ENRICHMENT_SCHEMA: Record<string, unknown> = {
 
 type EnrichmentStatus = "pending" | "running" | "complete" | "failed";
 
-interface EnrichmentInput {
+export interface EnrichmentInput {
   uid: string;
   displayName?: string;
   email?: string;
@@ -61,7 +61,7 @@ interface EnrichmentInput {
 
 type Confidence = "high" | "medium" | "low" | "none";
 
-interface EnrichmentResult {
+export interface EnrichmentResult {
   bio: string;
   topics: string[];
   company?: string;
@@ -212,7 +212,7 @@ function runClaudeEnrich(input: EnrichmentInput): Promise<EnrichmentResult> {
  * local model synthesizes the profile JSON via structured output. Throws on hard
  * failure (no results / synth error) so the caller can fall back to the CLI path.
  */
-async function runLocalEnrich(input: EnrichmentInput): Promise<EnrichmentResult> {
+export async function runLocalEnrich(input: EnrichmentInput): Promise<EnrichmentResult> {
   const { user: personBlock, systemAppend } = buildEnrichPrompt(input);
   const preferHost = input.email?.split("@")[1];
 
