@@ -26,10 +26,14 @@ const REQUEUE_BASE_MS = 1_000;
 const REQUEUE_CAP_MS = 30_000;
 const HOST_ID = process.env.BOT_HOST_ID ?? `laptop-${Math.random().toString(36).slice(2, 8)}`;
 
-// Transient API conditions worth retrying rather than failing: rate limits (429)
-// and overloads (529). Matched against the thrown error message so an overload
-// burst becomes delay, not lost replies.
-const TRANSIENT_RE = /\b(429|529)\b|rate limit|input tokens per minute|overloaded/i;
+// Transient conditions worth retrying rather than failing. Matched against the
+// thrown error message so an overload burst becomes delay, not lost replies.
+//  - Anthropic side: rate limits (429) and overloads (529).
+//  - Local side: a saturated GPU makes requests exceed LOCAL_TIMEOUT_MS, or Ollama
+//    is briefly unreachable mid-restart. In pure-local mode (no fallback) these
+//    must requeue+backoff, not drop — see llm.ts for the normalized messages.
+const TRANSIENT_RE =
+  /\b(429|529)\b|rate limit|input tokens per minute|overloaded|ollama timeout|ollama unreachable/i;
 
 const sa = process.env.GOOGLE_APPLICATION_CREDENTIALS;
 if (sa && fs.existsSync(sa)) {

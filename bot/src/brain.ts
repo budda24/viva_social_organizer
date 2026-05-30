@@ -19,7 +19,7 @@
 
 import type { Firestore, QueryDocumentSnapshot } from "firebase-admin/firestore";
 import { FieldValue, Timestamp } from "firebase-admin/firestore";
-import Anthropic from "@anthropic-ai/sdk";
+import { runChat, embed } from "./llm.js";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -47,15 +47,11 @@ import {
 
 const BOT_DIR = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const CLAUDE_MD_PATH = path.join(BOT_DIR, "CLAUDE.md");
-const CLAUDE_MODEL = process.env.CLAUDE_MODEL ?? "claude-haiku-4-5";
 const MAX_REPLY_CHARS = 1200;
 const HISTORY_LIMIT = 6;
 
 // Read once at module load — system prompt rarely changes mid-process.
 const BASE_SYSTEM_PROMPT = fs.readFileSync(CLAUDE_MD_PATH, "utf-8");
-
-// Reads ANTHROPIC_API_KEY from the environment.
-const anthropic = new Anthropic();
 
 type Provider = "twilio" | "telegram";
 
@@ -311,7 +307,10 @@ async function getMemberDirectory(db: Firestore): Promise<DirectoryMember[]> {
 
   if (!isFresh && directoryInflight === null) {
     directoryInflight = loadMemberDirectory(db)
-      .then((members) => {
+      .then(async (members) => {
+        // Embed (new/changed) members here, inside the single-flight load, so a
+        // burst of messages triggers one batched embed pass — not one per message.
+        await ensureMemberEmbeddings(members);
         directoryCache = { members, loadedAt: Date.now() };
         return members;
       })
@@ -327,8 +326,102 @@ async function getMemberDirectory(db: Firestore): Promise<DirectoryMember[]> {
   return directoryInflight!; // first ever load — wait for it (errors propagate to caller)
 }
 
-// The shared, cacheable directory block — identical for every user so a single
-// cache entry serves the whole community within the 5-min window.
+// Recognized intents that must be answered even mid-onboarding, so a real
+// question isn't swallowed as a profile answer. Kept deliberately specific:
+// a plain onboarding answer (e.g. a topics list "AI, climate, fintech", or
+// "I build communities") must NOT match — only clear commands, or a venture
+// mention paired with a question cue.
+const VENTURE_RE = /\b(omnia|online tribes?)\b/i;
+const VENTURE_QUESTION_CUE = /\b(tell|what|whats?|about|explain|who|info|learn|describe|know)\b/i;
+function isKnownIntent(body: string): boolean {
+  const t = body.trim();
+  if (/^\/?help\b/i.test(t)) return true;
+  if (/^\/?stop\b/i.test(t)) return true;
+  if (/\bfind me\b/i.test(t)) return true;
+  if (/\bwho(?:'?s| is)?\s*(?:here|around)\b/i.test(t)) return true;
+  if (/\bfree\s+(?:for|now)\b/i.test(t)) return true;
+  if (/\b(?:create|new)\s+event\b/i.test(t) || /^\/event\b/i.test(t)) return true;
+  // Venture promo: a venture name AND a question/request cue (or a "?").
+  if (VENTURE_RE.test(t) && (t.includes("?") || VENTURE_QUESTION_CUE.test(t))) return true;
+  return false;
+}
+
+// ── Directory pre-filter (event-scale fix) ──────────────────────────────────
+// At hundreds+ members the full directory in every prompt is the throughput
+// bottleneck (it fills the context window → prefill dominates). Instead we embed
+// members once (cached by profile hash) and inject only the top-K most relevant
+// to the requester+message. The LLM still does the nuanced final pick, so the
+// pre-filter only needs good recall — top-K=25 is generous for that.
+const MEMBER_TOPK = Number(process.env.MEMBER_TOPK ?? 25);
+const EMBED_BATCH = 128;
+
+// uid → { hash of profile text, embedding }. Recomputed only when a member's
+// profile changes; rebuilt from scratch on restart (cheap, batched).
+const memberEmbedCache = new Map<string, { hash: string; vec: number[] }>();
+
+function memberEmbedText(m: DirectoryMember): string {
+  const topics = (m.enrichedTopics.length ? m.enrichedTopics : m.topics).join(", ");
+  return [m.name, m.goal, m.enrichedBio || m.bio, topics, m.enrichedMatchSignals, m.enrichedCompany, m.lookingFor]
+    .filter(Boolean)
+    .join(" | ");
+}
+
+// Tiny stable hash — only needs to detect when a profile's text changed.
+function hashText(s: string): string {
+  let h = 0;
+  for (let i = 0; i < s.length; i++) h = (Math.imul(h, 31) + s.charCodeAt(i)) | 0;
+  return String(h);
+}
+
+// Embed any members whose profile text isn't already cached. Batched + awaited;
+// called inside the single-flight directory load so a burst embeds once, not N×.
+async function ensureMemberEmbeddings(members: DirectoryMember[]): Promise<void> {
+  const stale = members.filter((m) => memberEmbedCache.get(m.uid)?.hash !== hashText(memberEmbedText(m)));
+  for (let i = 0; i < stale.length; i += EMBED_BATCH) {
+    const chunk = stale.slice(i, i + EMBED_BATCH);
+    const vecs = await embed(chunk.map(memberEmbedText));
+    chunk.forEach((m, j) => memberEmbedCache.set(m.uid, { hash: hashText(memberEmbedText(m)), vec: vecs[j] }));
+  }
+}
+
+function cosine(a: number[], b: number[]): number {
+  if (a.length === 0 || b.length !== a.length) return 0;
+  let dot = 0, na = 0, nb = 0;
+  for (let i = 0; i < a.length; i++) {
+    dot += a[i] * b[i];
+    na += a[i] * a[i];
+    nb += b[i] * b[i];
+  }
+  return na && nb ? dot / (Math.sqrt(na) * Math.sqrt(nb)) : 0;
+}
+
+/**
+ * Pick the members most relevant to this requester+message. Excludes the
+ * requester, always keeps currently-free members (so FREE_NOW_MODE still has
+ * candidates), and short-circuits for small communities (≤ K → no ranking).
+ */
+async function selectRelevantMembers(
+  members: DirectoryMember[],
+  selfUid: string,
+  message: string,
+  self: { goal?: string; topics?: string[] }
+): Promise<DirectoryMember[]> {
+  const others = members.filter((m) => m.uid !== selfUid);
+  if (others.length <= MEMBER_TOPK) return others;
+
+  const queryText = [message, self.goal ?? "", (self.topics ?? []).join(", ")].filter(Boolean).join(" | ");
+  const [qvec] = await embed([queryText]);
+  const ranked = others
+    .map((m) => ({ m, score: cosine(qvec, memberEmbedCache.get(m.uid)?.vec ?? []) }))
+    .sort((a, b) => b.score - a.score);
+
+  const top = ranked.slice(0, MEMBER_TOPK).map((r) => r.m);
+  const topSet = new Set(top.map((m) => m.uid));
+  const free = others.filter((m) => m.freeUntilMs && !topSet.has(m.uid));
+  return [...top, ...free];
+}
+
+// The directory block injected into the prompt — now a per-requester top-K slice.
 function buildDirectoryBlock(members: DirectoryMember[]): string {
   if (members.length === 0) {
     return `## Member directory\n(empty — no other approved members yet; tell the user nobody else is here)`;
@@ -506,30 +599,25 @@ function buildContextBlock(args: {
 async function runClaude(
   userMessage: string,
   directoryBlock: string,
-  volatileBlock: string
+  volatileBlock: string,
+  expectAction: boolean
 ): Promise<string> {
-  // Prompt caching: the static system prompt and the shared member directory
-  // are byte-identical across users, so they're marked as cacheable prefixes
-  // (~10% read cost, much lower latency). Only the small per-request volatile
-  // block (time, self, history) is re-billed in full each call.
-  const result = await anthropic.messages.create({
-    model: CLAUDE_MODEL,
-    max_tokens: 400,
-    system: [
-      { type: "text", text: BASE_SYSTEM_PROMPT, cache_control: { type: "ephemeral" } },
-      { type: "text", text: directoryBlock, cache_control: { type: "ephemeral" } },
-      { type: "text", text: volatileBlock },
-    ],
-    messages: [{ role: "user", content: userMessage }],
+  // The static system prompt and the shared member directory are byte-identical
+  // across users; the small per-request volatile block (time, self, history) is
+  // not. The local backend gets these joined into one system message; the
+  // Anthropic fallback re-applies ephemeral cache_control to the first two blocks
+  // (see llm.ts) to preserve the original prompt-cache economics.
+  const { text } = await runChat({
+    system: [BASE_SYSTEM_PROMPT, directoryBlock, volatileBlock],
+    user: userMessage,
+    maxTokens: 400,
+    // In EVENT_CREATION_MODE a create_event marker is mandatory — let a markerless
+    // local reply fall back to Anthropic. Other turns legitimately have no marker.
+    expectAction,
   });
 
-  let reply = "";
-  for (const block of result.content) {
-    if (block.type === "text") reply += block.text;
-  }
-
-  reply = reply.trim();
-  if (!reply) throw new Error("Claude returned no text content");
+  const reply = text.trim();
+  if (!reply) throw new Error("LLM returned no text content");
   return reply.length > MAX_REPLY_CHARS ? reply.slice(0, MAX_REPLY_CHARS) : reply;
 }
 
@@ -625,22 +713,30 @@ export async function processMessage(deps: ProcessMessageDeps): Promise<void> {
   // Onboarding gate — if the user hasn't completed the profile, every inbound
   // message is treated as an answer to the current question. LinkedIn users
   // skip this. No Claude call until onboarding.step === "complete".
-  const onboarding = await runOnboardingStep(userRef, userData, body, lang);
-  if (onboarding.handled) {
-    await writeOutbox(db, {
-      provider,
-      uid,
-      phone,
-      chatId,
-      body: onboarding.reply,
-      type: "onboarding",
-    });
-    await appendTurns(db, uid, [
-      { role: "user", content: body, at: Timestamp.now() },
-      { role: "assistant", content: onboarding.reply, at: Timestamp.now() },
-    ]);
-    await inboxDoc.ref.update({ intent: "onboarding" });
-    return;
+  //
+  // EXCEPTION: a recognized intent (help / find / create event / who is here /
+  // free / stop / a question about the ventures) is answered immediately even
+  // mid-onboarding — otherwise a new user's real question gets silently consumed
+  // as a profile answer (and pollutes their bio). Only genuine free-text falls
+  // through to onboarding.
+  if (!isKnownIntent(body)) {
+    const onboarding = await runOnboardingStep(userRef, userData, body, lang);
+    if (onboarding.handled) {
+      await writeOutbox(db, {
+        provider,
+        uid,
+        phone,
+        chatId,
+        body: onboarding.reply,
+        type: "onboarding",
+      });
+      await appendTurns(db, uid, [
+        { role: "user", content: body, at: Timestamp.now() },
+        { role: "assistant", content: onboarding.reply, at: Timestamp.now() },
+      ]);
+      await inboxDoc.ref.update({ intent: "onboarding" });
+      return;
+    }
   }
 
   // Incoming intro request — this user was asked to connect with someone and
@@ -813,7 +909,14 @@ export async function processMessage(deps: ProcessMessageDeps): Promise<void> {
     getMemberDirectory(db),
   ]);
   const enrichment = (userData.enrichment ?? {}) as Record<string, unknown>;
-  const directoryBlock = buildDirectoryBlock(members);
+  // Pre-filter to the top-K members relevant to this requester+message so only a
+  // small slice rides in the prompt (keeps throughput in the fast regime at
+  // hundreds-1000 members). Falls back to all members for small communities.
+  const relevantMembers = await selectRelevantMembers(members, uid, body, {
+    goal: (userData as Record<string, unknown>).goal as string | undefined,
+    topics: Array.isArray(enrichment.topics) ? (enrichment.topics as string[]) : undefined,
+  });
+  const directoryBlock = buildDirectoryBlock(relevantMembers);
   const volatileBlock = buildContextBlock({
     uid,
     provider,
@@ -839,7 +942,7 @@ export async function processMessage(deps: ProcessMessageDeps): Promise<void> {
     lang,
   });
 
-  const rawReply = await runClaude(claudeBody, directoryBlock, volatileBlock);
+  const rawReply = await runClaude(claudeBody, directoryBlock, volatileBlock, eventMode);
   const { reply, action } = parseActionMarker(rawReply);
 
   if (action) {

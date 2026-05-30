@@ -1,15 +1,18 @@
 /**
  * Async profile-enrichment worker.
  *
- * Polls Firestore for users with `enrichment.status == "pending"`, then
- * spawns `claude -p` with the WebSearch/WebFetch tools enabled to research
- * the person from public sources (LinkedIn headline, company, talks, papers).
- * Synthesizes a JSON profile and saves it back to the user doc.
+ * Polls Firestore for users with `enrichment.status == "pending"` and researches
+ * the person from public sources (LinkedIn headline, company, talks, papers),
+ * synthesizing a JSON profile saved back to the user doc.
  *
- * No Tavily, no separate Anthropic API key — uses the same Claude CLI auth
- * the bot brain already relies on.
+ * Two backends (see LLM_BACKEND):
+ *   - LOCAL (default): SearXNG search → fetch pages → strip → local model
+ *     synthesizes the profile JSON via Ollama structured output.
+ *   - CLAUDE CLI (fallback): spawns `claude -p` with WebSearch/WebFetch. Used when
+ *     the local pipeline errors or comes back low/none on identity — real web
+ *     search can sometimes find people the local pipeline can't.
  *
- * Runs alongside the inbox poll loop in src/index.ts.
+ * No Tavily, no paid search APIs. Runs alongside the inbox poll loop in index.ts.
  */
 
 import type { Firestore, QueryDocumentSnapshot } from "firebase-admin/firestore";
@@ -17,12 +20,33 @@ import { FieldValue, Timestamp } from "firebase-admin/firestore";
 import { spawn } from "node:child_process";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
+import { runStructured, localEnabled, LLM_BACKEND } from "./llm.js";
+import { searchWeb, fetchPageText } from "./search.js";
 
 const BOT_DIR = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const CLAUDE_BIN = process.env.CLAUDE_BIN ?? "claude";
 const ENRICH_MODEL = process.env.ENRICH_MODEL ?? "claude-sonnet-4-6";
 const ENRICH_TIMEOUT_MS = Number(process.env.ENRICH_TIMEOUT_MS ?? 120_000);
+const ENRICH_SEARCH_TOP_N = Number(process.env.ENRICH_SEARCH_TOP_N ?? 6);
 const LEASE_MS = 180_000;
+
+// JSON schema handed to Ollama (`format`) so the local model's output is
+// guaranteed parseable — mirrors EnrichmentResult.
+const ENRICHMENT_SCHEMA: Record<string, unknown> = {
+  type: "object",
+  properties: {
+    confidence: { type: "string", enum: ["high", "medium", "low", "none"] },
+    linkedinUrl: { type: "string" },
+    sources: { type: "array", items: { type: "string" } },
+    rationale: { type: "string" },
+    bio: { type: "string" },
+    topics: { type: "array", items: { type: "string" } },
+    company: { type: "string" },
+    recentActivity: { type: "string" },
+    matchSignals: { type: "string" },
+  },
+  required: ["confidence", "bio", "topics", "sources"],
+};
 
 type EnrichmentStatus = "pending" | "running" | "complete" | "failed";
 
@@ -183,6 +207,60 @@ function runClaudeEnrich(input: EnrichmentInput): Promise<EnrichmentResult> {
   });
 }
 
+/**
+ * Local enrichment pipeline: SearXNG search → fetch top-N pages → strip to text →
+ * local model synthesizes the profile JSON via structured output. Throws on hard
+ * failure (no results / synth error) so the caller can fall back to the CLI path.
+ */
+async function runLocalEnrich(input: EnrichmentInput): Promise<EnrichmentResult> {
+  const { user: personBlock, systemAppend } = buildEnrichPrompt(input);
+  const preferHost = input.email?.split("@")[1];
+
+  const query = [input.displayName ?? "", preferHost ?? "", "VivaTech"]
+    .filter(Boolean)
+    .join(" ")
+    .trim();
+  const hits = await searchWeb(query, ENRICH_SEARCH_TOP_N, preferHost);
+  if (hits.length === 0) throw new Error("searxng returned no usable results");
+
+  // Fetch each page; fall back to the search snippet when a page is walled/empty.
+  const pages = await Promise.all(
+    hits.map(async (h) => {
+      const text = await fetchPageText(h.url);
+      return { title: h.title, url: h.url, text: text || h.content };
+    })
+  );
+
+  const sourcesBlock = pages
+    .map((p, i) => `[Source ${i + 1}] ${p.title}\nURL: ${p.url}\n${p.text}`)
+    .join("\n\n---\n\n");
+
+  // The base persona's "Method" section assumes live browsing — override it: the
+  // model must reason ONLY over the inline sources below. Identity/confidence
+  // rules from buildEnrichPrompt still apply unchanged.
+  const localDirective = `
+## You cannot browse the web in this call
+
+You have NO WebSearch/WebFetch tools here. Use ONLY the "Web sources found" block
+in the user message below. Cite in "sources" only URLs that appear there. If those
+sources don't clearly identify the named person, return confidence "low" or "none"
+and leave bio/topics/etc. empty per the strict gate above.`.trim();
+
+  const userMsg = `${personBlock}\n\n## Web sources found\n\n${sourcesBlock}`;
+
+  const { data } = await runStructured<Record<string, unknown>>({
+    system: [systemAppend, localDirective],
+    user: userMsg,
+    schema: ENRICHMENT_SCHEMA,
+    maxTokens: 600,
+    timeoutMs: ENRICH_TIMEOUT_MS,
+  });
+
+  const coerced = coerceEnrichmentResult(data);
+  if (!coerced) throw new Error("local enrich produced an unusable result");
+  return coerced;
+}
+
 function extractTrailingJson(output: string): EnrichmentResult | null {
   const trimmed = output.trim();
   // Find the last `{` and try parsing from there to the end.
@@ -191,48 +269,53 @@ function extractTrailingJson(output: string): EnrichmentResult | null {
   const candidate = trimmed.slice(lastBrace);
   try {
     const parsed = JSON.parse(candidate) as Record<string, unknown>;
-    if (typeof parsed !== "object" || parsed == null) return null;
-
-    const rawConf = String(parsed.confidence ?? "").toLowerCase();
-    const confidence: Confidence =
-      rawConf === "high" || rawConf === "medium" || rawConf === "low"
-        ? (rawConf as Confidence)
-        : "none";
-
-    const sources = Array.isArray(parsed.sources)
-      ? (parsed.sources as unknown[])
-          .map((s) => String(s).trim())
-          .filter((s) => s.length > 0 && s.length < 500)
-          .slice(0, 10)
-      : [];
-
-    const linkedinUrl = parsed.linkedinUrl
-      ? String(parsed.linkedinUrl).slice(0, 300)
-      : undefined;
-    const rationale = parsed.rationale
-      ? String(parsed.rationale).slice(0, 300)
-      : undefined;
-
-    return {
-      bio: String(parsed.bio ?? "").slice(0, 200),
-      topics: Array.isArray(parsed.topics)
-        ? (parsed.topics as unknown[]).map(String).slice(0, 6)
-        : [],
-      company: parsed.company ? String(parsed.company).slice(0, 100) : undefined,
-      recentActivity: parsed.recentActivity
-        ? String(parsed.recentActivity).slice(0, 200)
-        : undefined,
-      matchSignals: parsed.matchSignals
-        ? String(parsed.matchSignals).slice(0, 200)
-        : undefined,
-      confidence,
-      linkedinUrl,
-      sources,
-      rationale,
-    };
+    return coerceEnrichmentResult(parsed);
   } catch {
     return null;
   }
+}
+
+/**
+ * Validate + clamp a raw parsed object into an EnrichmentResult. Shared by the
+ * local structured-output path and the CLI trailing-JSON path so both enforce the
+ * same field caps, sources filtering, and confidence coercion.
+ */
+function coerceEnrichmentResult(parsed: Record<string, unknown>): EnrichmentResult | null {
+  if (typeof parsed !== "object" || parsed == null) return null;
+
+  const rawConf = String(parsed.confidence ?? "").toLowerCase();
+  const confidence: Confidence =
+    rawConf === "high" || rawConf === "medium" || rawConf === "low"
+      ? (rawConf as Confidence)
+      : "none";
+
+  const sources = Array.isArray(parsed.sources)
+    ? (parsed.sources as unknown[])
+        .map((s) => String(s).trim())
+        .filter((s) => s.length > 0 && s.length < 500)
+        .slice(0, 10)
+    : [];
+
+  const linkedinUrl = parsed.linkedinUrl
+    ? String(parsed.linkedinUrl).slice(0, 300)
+    : undefined;
+  const rationale = parsed.rationale ? String(parsed.rationale).slice(0, 300) : undefined;
+
+  return {
+    bio: String(parsed.bio ?? "").slice(0, 200),
+    topics: Array.isArray(parsed.topics)
+      ? (parsed.topics as unknown[]).map(String).slice(0, 6)
+      : [],
+    company: parsed.company ? String(parsed.company).slice(0, 100) : undefined,
+    recentActivity: parsed.recentActivity
+      ? String(parsed.recentActivity).slice(0, 200)
+      : undefined,
+    matchSignals: parsed.matchSignals ? String(parsed.matchSignals).slice(0, 200) : undefined,
+    confidence,
+    linkedinUrl,
+    sources,
+    rationale,
+  };
 }
 
 // Minimum confidence we trust enough to publish enriched content into the
@@ -240,6 +323,46 @@ function extractTrailingJson(output: string): EnrichmentResult | null {
 // rationale, confidence) but leave bio/topics/etc. empty so we don't risk
 // showing wrong-person data in the directory or feeding it into match scoring.
 const MIN_PUBLISHABLE_CONFIDENCE: Confidence = "medium";
+
+/**
+ * Run enrichment honoring LLM_BACKEND, with local→CLI fallback:
+ *   - local / local-first: try the local pipeline; if it errors, or comes back
+ *     low/none on identity (where real web search might still find them), fall
+ *     back to the claude-CLI path. If the CLI then fails too, keep the local
+ *     result if we have one.
+ *   - anthropic: skip local, go straight to the claude-CLI path.
+ */
+async function enrichOnce(input: EnrichmentInput): Promise<EnrichmentResult> {
+  let localResult: EnrichmentResult | null = null;
+
+  if (localEnabled()) {
+    try {
+      localResult = await runLocalEnrich(input);
+      if (localResult.confidence === "high" || localResult.confidence === "medium") {
+        return localResult;
+      }
+      if (LLM_BACKEND === "local") return localResult; // no fallback configured
+      console.log(
+        `[enrich] local confidence=${localResult.confidence} for uid=${input.uid} — trying claude-CLI fallback`
+      );
+    } catch (e: unknown) {
+      const message = e instanceof Error ? e.message : String(e);
+      if (LLM_BACKEND === "local") throw e;
+      console.warn(`[enrich] local pipeline failed (${message}) — falling back to claude-CLI`);
+    }
+  }
+
+  try {
+    return await runClaudeEnrich(input);
+  } catch (e: unknown) {
+    if (localResult) {
+      const message = e instanceof Error ? e.message : String(e);
+      console.warn(`[enrich] claude-CLI fallback failed (${message}) — keeping local result`);
+      return localResult;
+    }
+    throw e;
+  }
+}
 
 function passesConfidenceGate(c: Confidence): boolean {
   if (MIN_PUBLISHABLE_CONFIDENCE === "high") return c === "high";
@@ -294,7 +417,7 @@ async function processOneEnrichment(
   };
 
   try {
-    const result = await runClaudeEnrich(input);
+    const result = await enrichOnce(input);
     const publishable = passesConfidenceGate(result.confidence);
 
     // Always persist provenance (confidence, sources, rationale, linkedinUrl)

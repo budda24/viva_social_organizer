@@ -12,6 +12,7 @@
 import type { DocumentReference } from "firebase-admin/firestore";
 import { FieldValue } from "firebase-admin/firestore";
 import type { Lang } from "./i18n.js";
+import { runStructured } from "./llm.js";
 
 export type OnboardingStep =
   | "pending"        // never asked; emit first question, advance
@@ -84,6 +85,10 @@ interface OnboardingStrings {
   askSelfLinkedin: string;
   needSelfLinkedin: string;
   selfComplete: string;
+  // Acks for an afterthought routed back to an EARLIER answer, prepended to the
+  // re-asked current question. `value` is the extracted content (e.g. "Fintech").
+  amendedTopics: (value: string) => string;
+  amendedBio: () => string;
 }
 
 const OB_EN: OnboardingStrings = {
@@ -128,6 +133,8 @@ const OB_EN: OnboardingStrings = {
     "• find me a buddy\n" +
     "• find me <topic>\n" +
     "• who is here",
+  amendedTopics: (value) => `Added ${value} to your topics. `,
+  amendedBio: () => `Got it, updated what you do. `,
 };
 
 const OB_FR: OnboardingStrings = {
@@ -173,6 +180,8 @@ const OB_FR: OnboardingStrings = {
     "• trouve-moi un binôme\n" +
     "• trouve-moi <sujet>\n" +
     "• qui est là",
+  amendedTopics: (value) => `${value} ajouté à tes domaines. `,
+  amendedBio: () => `C'est noté, mis à jour. `,
 };
 
 function ob(lang: Lang): OnboardingStrings {
@@ -220,6 +229,163 @@ function parseTopics(text: string): string[] {
     .map((t) => t.slice(0, 40));
 }
 
+// Case-insensitive dedupe, preserving first-seen casing, capped at 6 topics.
+function dedupeTopics(topics: string[]): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const t of topics) {
+    const key = t.toLowerCase();
+    if (t && !seen.has(key)) {
+      seen.add(key);
+      out.push(t);
+    }
+  }
+  return out.slice(0, 6);
+}
+
+// ── Afterthought / correction handling ──────────────────────────────────────
+// The self-interview is a strict question-by-question machine. Without this, a
+// reply like "Fintech as well" — meant as an addition to the EARLIER topics
+// answer — gets blindly stored as the answer to whatever question is current
+// (e.g. "who do you want to meet"), corrupting both fields.
+//
+// Cheap regex gate keeps the happy path 100% deterministic: only afterthought-
+// shaped messages trigger the local zero-cost classifier, which decides which
+// earlier field (if any) the message amends. Any classifier failure degrades
+// silently to the normal deterministic flow (treat as the current answer).
+export const AMENDMENT_GATE_RE =
+  /\b(as well|also|too|forgot|in addition|on top)\b|^\s*(and|also|plus|oh,? and|btw|by the way|add)\b/i;
+
+type AmendTarget = "current" | "bio" | "topics" | "meet";
+
+const AMEND_SCHEMA: Record<string, unknown> = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    target: { type: "string", enum: ["current", "bio", "topics", "meet"] },
+    value: { type: "string" },
+  },
+  required: ["target", "value"],
+};
+
+// The field the CURRENT question is collecting — an "amendment" to this field is
+// just a normal answer, so we treat that classifier verdict as "current".
+function currentField(step: OnboardingStep): AmendTarget {
+  if (step === "self_topics") return "topics";
+  if (step === "self_meet") return "meet";
+  return "current";
+}
+
+function currentQuestion(step: OnboardingStep, s: OnboardingStrings): string {
+  return step === "self_topics" ? s.askSelfTopics : s.askSelfMeet;
+}
+
+export interface AmendmentVerdict {
+  target: AmendTarget;
+  value: string;
+}
+
+// Ask the local model whether `message` answers the current question or amends
+// an earlier answer. Local-only (runStructured has no Anthropic fallback); on
+// any error or empty result we return { target: "current" } so onboarding keeps
+// working exactly as the deterministic path would.
+export async function classifyAmendment(
+  step: OnboardingStep,
+  message: string,
+  draftBio: string,
+  draftTopics: string[]
+): Promise<AmendmentVerdict> {
+  const fallback: AmendmentVerdict = { target: "current", value: message };
+
+  const currentQ =
+    step === "self_topics"
+      ? "their areas / topics of interest (a comma-separated list)"
+      : "WHO they want to meet at the VivaTech conference";
+  const earlier: string[] = [];
+  if (draftBio) earlier.push(`- what they do: "${draftBio}"`);
+  if (step === "self_meet" && draftTopics.length) {
+    earlier.push(`- their areas/topics: ${draftTopics.join(", ")}`);
+  }
+  const allowed =
+    step === "self_topics" ? `"current" or "bio"` : `"current", "bio", or "topics"`;
+
+  const system =
+    `You classify ONE message in a step-by-step profile intake for a networking bot. ` +
+    `The bot just asked the user about: ${currentQ}.\n` +
+    `Earlier in the intake the user already told us:\n` +
+    `${earlier.join("\n") || "(nothing yet)"}\n\n` +
+    `Decide what the latest message is:\n` +
+    `- "current": it answers the CURRENT question. This is the DEFAULT — pick it unless the message is clearly an afterthought or correction about an EARLIER answer.\n` +
+    `- "bio": it adds to or corrects WHAT THEY DO.\n` +
+    `- "topics": it adds to or corrects THEIR AREAS / TOPICS.\n` +
+    `Only ever output one of: ${allowed}. If unsure, output "current".\n\n` +
+    `Also return "value": the content to file, with afterthought wording stripped.\n` +
+    `Examples (topics question already answered, who-to-meet question current):\n` +
+    `  "Fintech as well" -> {"target":"topics","value":"Fintech"}\n` +
+    `  "oh and crypto too" -> {"target":"topics","value":"crypto"}\n` +
+    `  "AI founders and climate VCs" -> {"target":"current","value":"AI founders and climate VCs"}\n` +
+    `  "investors, also some operators" -> {"target":"current","value":"investors, operators"}\n` +
+    `Output ONLY the JSON object.`;
+
+  try {
+    const { data } = await runStructured<AmendmentVerdict>({
+      system: [system],
+      user: message,
+      schema: AMEND_SCHEMA,
+      maxTokens: 120,
+      timeoutMs: 6000,
+    });
+    const target: AmendTarget = ["current", "bio", "topics", "meet"].includes(data?.target)
+      ? data.target
+      : "current";
+    const value = typeof data?.value === "string" && data.value.trim() ? data.value.trim() : message;
+    return { target, value };
+  } catch {
+    return fallback;
+  }
+}
+
+// Returns an outcome if the message was an afterthought routed to an earlier
+// field (merged + current question re-asked); null if it's a genuine answer to
+// the current question (caller proceeds with the deterministic step logic).
+async function tryAmendPriorAnswer(
+  userRef: DocumentReference,
+  userDoc: UserDocLike,
+  trimmed: string,
+  step: OnboardingStep,
+  lang: Lang
+): Promise<OnboardingOutcome | null> {
+  const s = ob(lang);
+  const draftBio = userDoc.onboarding?.draftBio ?? "";
+  const draftTopics = userDoc.onboarding?.draftTopics ?? [];
+
+  const { target, value } = await classifyAmendment(step, trimmed, draftBio, draftTopics);
+
+  // "current" (or an amendment to the field this question already collects) →
+  // not an afterthought; let the deterministic step handle it.
+  if (target === "current" || target === currentField(step) || !value.trim()) {
+    return null;
+  }
+
+  if (target === "topics") {
+    const merged = dedupeTopics([...draftTopics, ...parseTopics(value)]);
+    // Deep-merge: leave step + other drafts untouched, just update the topics.
+    await userRef.set({ onboarding: { draftTopics: merged } }, { merge: true });
+    return {
+      handled: true,
+      reply: s.amendedTopics(value.slice(0, 40)) + currentQuestion(step, s),
+    };
+  }
+
+  if (target === "bio") {
+    const merged = (draftBio ? `${draftBio}; ` : "") + value;
+    await userRef.set({ onboarding: { draftBio: merged.slice(0, 200) } }, { merge: true });
+    return { handled: true, reply: s.amendedBio() + currentQuestion(step, s) };
+  }
+
+  return null;
+}
+
 // True once enrichment has settled (complete/failed) WITHOUT producing a
 // usable, publishable profile. enrichUser always writes a boolean `publishable`;
 // a self-completed profile sets publishable:true, so this flips back to false
@@ -239,6 +405,20 @@ async function runSelfInterview(
   lang: Lang
 ): Promise<OnboardingOutcome> {
   const s = ob(lang);
+
+  // Before treating this as the current question's answer, catch afterthoughts
+  // that actually amend an EARLIER answer (e.g. "Fintech as well" at the
+  // who-to-meet step really belongs in topics). Gated to the steps that have a
+  // prior field to amend, and only when the message looks like an addition —
+  // the common case stays a pure deterministic write.
+  if (
+    (step === "self_topics" || step === "self_meet") &&
+    AMENDMENT_GATE_RE.test(trimmed)
+  ) {
+    const amended = await tryAmendPriorAnswer(userRef, userDoc, trimmed, step, lang);
+    if (amended) return amended;
+  }
+
   switch (step) {
     case "self_do": {
       const bio = trimmed.slice(0, 200);
