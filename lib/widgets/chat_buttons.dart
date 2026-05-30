@@ -23,40 +23,47 @@ class TelegramJoinButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final button = Material(
-      color: _Brand.telegram,
-      borderRadius: BorderRadius.circular(16),
-      child: InkWell(
+    final disabled = onPressed == null;
+    final button = Opacity(
+      opacity: disabled ? 0.45 : 1.0,
+      child: Material(
+        color: _Brand.telegram,
         borderRadius: BorderRadius.circular(16),
-        onTap: onPressed,
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 26, vertical: 20),
-          child: Row(
-            mainAxisSize: fullWidth ? MainAxisSize.max : MainAxisSize.min,
-            children: [
-              Container(
-                width: 32,
-                height: 32,
-                decoration: const BoxDecoration(
-                  color: _Brand.telegramTint,
-                  shape: BoxShape.circle,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(16),
+          onTap: onPressed,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 26, vertical: 20),
+            child: Row(
+              mainAxisSize: fullWidth ? MainAxisSize.max : MainAxisSize.min,
+              children: [
+                Container(
+                  width: 32,
+                  height: 32,
+                  decoration: const BoxDecoration(
+                    color: _Brand.telegramTint,
+                    shape: BoxShape.circle,
+                  ),
+                  alignment: Alignment.center,
+                  child: const Icon(
+                    Icons.send_rounded,
+                    color: Colors.white,
+                    size: 16,
+                  ),
                 ),
-                alignment: Alignment.center,
-                child: const Icon(Icons.send_rounded,
-                    color: Colors.white, size: 16),
-              ),
-              const SizedBox(width: 14),
-              Text(
-                label,
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontWeight: FontWeight.w600,
-                  fontSize: 17,
+                const SizedBox(width: 14),
+                Text(
+                  label,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w600,
+                    fontSize: 17,
+                  ),
                 ),
-              ),
-              if (fullWidth) const Spacer() else const SizedBox(width: 14),
-              const Icon(Icons.arrow_forward, color: Colors.white, size: 20),
-            ],
+                if (fullWidth) const Spacer() else const SizedBox(width: 14),
+                const Icon(Icons.arrow_forward, color: Colors.white, size: 20),
+              ],
+            ),
           ),
         ),
       ),
@@ -102,8 +109,11 @@ class WhatsAppSecondaryButton extends StatelessWidget {
                   shape: BoxShape.circle,
                 ),
                 alignment: Alignment.center,
-                child: const Icon(Icons.chat_bubble_rounded,
-                    color: Colors.white, size: 9),
+                child: const Icon(
+                  Icons.chat_bubble_rounded,
+                  color: Colors.white,
+                  size: 9,
+                ),
               ),
               const SizedBox(width: 8),
               Text(

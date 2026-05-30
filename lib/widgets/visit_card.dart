@@ -16,6 +16,11 @@ class VisitCard extends StatelessWidget {
     return Padding(
       padding: EdgeInsets.fromLTRB(isCompact ? 20 : 40, 12, isCompact ? 20 : 40, 4),
       child: Column(
+        // Stretch so both host cards fill the available width and match each
+        // other. Without this, the compact layout (a plain Column with no
+        // Expanded) lets each card shrink to its own content — Franek's 4 chips
+        // make his card wider than Marianna's 2.
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: const [
           _HostCard(
             initials: 'FJ',

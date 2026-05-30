@@ -14,7 +14,14 @@ import '../widgets/app_scaffold.dart';
 import '../widgets/chat_buttons.dart';
 import '../widgets/mini_speaker_card.dart';
 import '../widgets/status_pill.dart';
-import '../widgets/user_avatar_chip.dart';
+
+// Mirror of the Telegram webhook's INVITE_CODE_PATTERN
+// (functions/src/channels/telegram/webhook.ts). A code that doesn't match is
+// unredeemable, so we must NEVER build a t.me deep link from it — doing so
+// sends the user `/start <badcode>` and the bot replies "invite link looks
+// invalid". This guards against the placeholder default below, an empty value,
+// or a stale code read from a deleted user doc.
+final RegExp _kInviteCodePattern = RegExp(r'^VIVA-[A-Z0-9]{4}-[A-Z0-9]{2}$');
 
 class WelcomeScreen extends StatefulWidget {
   const WelcomeScreen({
@@ -39,6 +46,10 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
   // The user's personal Telegram binding code (from linkedinSignIn / user doc).
   // Falls back to widget.inviteCode only if we can't resolve a real one.
   String? _telegramCode;
+  // Set when the auth session is live but the users/{uid} doc is gone (e.g. the
+  // account was deleted). The Telegram link can't be built, so we prompt a fresh
+  // sign-in instead of handing out the broken placeholder code.
+  bool _needsReauth = false;
 
   @override
   void initState() {
@@ -67,7 +78,9 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
     if (existing != null) {
       _populateFromUser(existing);
       // Pull the real Telegram binding code from the user's doc.
-      WidgetsBinding.instance.addPostFrameCallback((_) => _loadTelegramCode(existing.uid));
+      WidgetsBinding.instance.addPostFrameCallback(
+        (_) => _loadTelegramCode(existing.uid),
+      );
       return;
     }
 
@@ -80,12 +93,19 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
   Future<void> _loadTelegramCode(String uid) async {
     try {
       final snap = await FirebaseFirestore.instance.doc('users/$uid').get();
+      if (!snap.exists) {
+        // Auth session outlived the user doc (account deleted, or never
+        // bootstrapped). Don't fall back to the placeholder code — that yields
+        // a deep link the bot rejects. Prompt a fresh sign-in instead.
+        if (mounted) setState(() => _needsReauth = true);
+        return;
+      }
       final code = snap.data()?['telegramLinkCode'] as String?;
       if (code != null && code.isNotEmpty && mounted) {
         setState(() => _telegramCode = code);
       }
     } catch (_) {
-      // Non-fatal — the Telegram button just falls back to widget.inviteCode.
+      // Non-fatal — leave the button disabled; its hint asks the user to retry.
     }
   }
 
@@ -113,8 +133,9 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
       // request — invite_screen.dart now uses `${origin}/welcome`.
       final redirectUri = '${uri.origin}/welcome';
 
-      final callable = FirebaseFunctions.instanceFor(region: 'europe-central2')
-          .httpsCallable('linkedinSignIn');
+      final callable = FirebaseFunctions.instanceFor(
+        region: 'europe-central2',
+      ).httpsCallable('linkedinSignIn');
       final res = await callable.call(<String, String>{
         'code': code,
         'redirectUri': redirectUri,
@@ -183,11 +204,16 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
               SizedBox(
                 width: 28,
                 height: 28,
-                child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.accent),
+                child: CircularProgressIndicator(
+                  strokeWidth: 2,
+                  color: AppColors.accent,
+                ),
               ),
               SizedBox(height: 16),
-              Text('Signing you in…',
-                  style: TextStyle(color: AppColors.inkMuted, fontSize: 14)),
+              Text(
+                'Signing you in…',
+                style: TextStyle(color: AppColors.inkMuted, fontSize: 14),
+              ),
             ],
           ),
         ),
@@ -224,7 +250,9 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
     final isCompact = width < 940;
 
     return AppScaffold(
-      topBarTrailing: UserAvatarChip(name: _displayName, avatarUrl: _photoUrl),
+      // Identity is already shown in the WELCOME, <name> block below, so we
+      // deliberately leave the top-bar trailing slot empty to avoid showing
+      // the user's name/avatar twice.
       child: Padding(
         padding: EdgeInsets.symmetric(horizontal: isCompact ? 20 : 40),
         child: Padding(
@@ -238,6 +266,7 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
                       email: _email,
                       photoUrl: _photoUrl,
                       inviteCode: _telegramCode ?? widget.inviteCode,
+                      needsReauth: _needsReauth,
                     ),
                     const SizedBox(height: 56),
                     const _MatchedHumansBlock(),
@@ -252,6 +281,7 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
                         email: _email,
                         photoUrl: _photoUrl,
                         inviteCode: _telegramCode ?? widget.inviteCode,
+                        needsReauth: _needsReauth,
                       ),
                     ),
                     const SizedBox(width: 48),
@@ -270,12 +300,16 @@ class _WelcomeBlock extends StatelessWidget {
     required this.inviteCode,
     this.email,
     this.photoUrl,
+    this.needsReauth = false,
   });
 
   final String userName;
   final String inviteCode;
   final String? email;
   final String? photoUrl;
+  // True when we know the account doc is gone — show a re-sign-in prompt rather
+  // than a (still-loading) "preparing your link" hint.
+  final bool needsReauth;
 
   Future<void> _open(Uri url) async {
     await launchUrl(url, mode: LaunchMode.externalApplication);
@@ -285,8 +319,7 @@ class _WelcomeBlock extends StatelessWidget {
   Widget build(BuildContext context) {
     final width = MediaQuery.sizeOf(context).width;
     final isCompact = width < 940;
-    final titleSize =
-        (width * (isCompact ? 0.13 : 0.066)).clamp(46.0, 88.0);
+    final titleSize = (width * (isCompact ? 0.13 : 0.066)).clamp(46.0, 88.0);
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -364,10 +397,40 @@ class _WelcomeBlock extends StatelessWidget {
           ),
         ),
         const SizedBox(height: 28),
-        TelegramJoinButton(
-          onPressed: () => _open(ChannelLinks.telegramJoin(inviteCode)),
-          fullWidth: isCompact,
-        ),
+        // Only enable the CTA once we hold a real, redeemable code. A malformed
+        // value (the placeholder default, an empty string, or a stale read)
+        // would build a t.me link the bot rejects, so we disable instead.
+        if (_kInviteCodePattern.hasMatch(inviteCode))
+          TelegramJoinButton(
+            onPressed: () => _open(ChannelLinks.telegramJoin(inviteCode)),
+            fullWidth: isCompact,
+          )
+        else ...[
+          TelegramJoinButton(onPressed: null, fullWidth: isCompact),
+          const SizedBox(height: 10),
+          if (needsReauth)
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Flexible(
+                  child: Text(
+                    "We couldn't find your account.",
+                    style: TextStyle(color: AppColors.inkMuted, fontSize: 13),
+                  ),
+                ),
+                TextButton(
+                  onPressed: () =>
+                      Navigator.of(context).pushReplacementNamed('/in'),
+                  child: const Text('Sign in again'),
+                ),
+              ],
+            )
+          else
+            const Text(
+              'Preparing your Telegram link…',
+              style: TextStyle(color: AppColors.inkMuted, fontSize: 13),
+            ),
+        ],
         const SizedBox(height: 14),
         Row(
           children: [
@@ -475,9 +538,7 @@ class _MatchedHumansBlock extends StatelessWidget {
                 ),
                 const Spacer(),
                 if (docs.isNotEmpty)
-                  StatusPill(
-                    label: '${docs.length} scheduled',
-                  ),
+                  StatusPill(label: '${docs.length} scheduled'),
               ],
             );
 
@@ -512,10 +573,7 @@ class _MatchedHumansBlock extends StatelessWidget {
             return Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                if (isCompact)
-                  headerRow
-                else
-                  headerRow,
+                if (isCompact) headerRow else headerRow,
                 const SizedBox(height: 18),
                 body,
               ],
@@ -648,8 +706,18 @@ class _EventRow extends StatelessWidget {
   static String _formatParis(DateTime dt) {
     const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
     const months = [
-      'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'May',
+      'Jun',
+      'Jul',
+      'Aug',
+      'Sep',
+      'Oct',
+      'Nov',
+      'Dec',
     ];
     final l = dt.toLocal();
     final dn = days[(l.weekday - 1).clamp(0, 6)];
@@ -707,4 +775,3 @@ class _EventsPlaceholder extends StatelessWidget {
     );
   }
 }
-
