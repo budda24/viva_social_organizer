@@ -566,7 +566,7 @@ function formatEventLine(e: UpcomingEvent): string {
 // say so plainly + offer to create one (not invent events).
 function buildEventsBlock(events: UpcomingEvent[]): string {
   if (events.length === 0) {
-    return `## Upcoming events\n(none scheduled yet — if the user asks what's on, say there are no events yet and offer "create event")`;
+    return `## Upcoming events\n(none scheduled yet — if the user asks what's on, reply in ONE warm line that nothing's on the calendar yet and invite them to be the first via "create event". Reply with only that line — do NOT show the menu.)`;
   }
   const lines = [`## Upcoming events (scheduled, soonest first — Paris time)`];
   for (const e of events) lines.push(formatEventLine(e));

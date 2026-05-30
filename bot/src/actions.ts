@@ -457,12 +457,14 @@ async function executeIntroBuddy(
   }
   const targetData = targetSnap.data() ?? {};
   if (targetData.status !== "approved") {
-    return { reply: `That member isn't reachable right now.` };
+    return {
+      reply: `I can't reach that member right now — but there's plenty more of the circle to meet. Reply \`find me a buddy\` and I'll line up someone else.`,
+    };
   }
   const route = pickChannel(targetData);
   if (!route) {
     return {
-      reply: `${targetData.displayName ?? "They"} hasn't linked WhatsApp or Telegram yet — can't reach them.`,
+      reply: `${targetData.displayName ?? "They"} hasn't joined the bot yet, so I can't ping them just yet — but there's plenty more to meet. Reply \`find me a buddy\` for another match.`,
     };
   }
   const targetName = (targetData.displayName as string | undefined) ?? "there";

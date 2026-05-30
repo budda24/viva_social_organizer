@@ -47,6 +47,12 @@ const EVENTS_BLOCK = `## Upcoming events (scheduled, soonest first — Paris tim
 - Founders coffee · Wed 9 Jun, 09:00 Paris · Café Marly · host: Alice Chen — open hang
 - Rooftop drinks · Wed 9 Jun, 20:00 Paris · 6e · host: Bjorn Ek`;
 
+// The empty-events block, byte-identical to brain.ts buildEventsBlock(). Used to
+// reproduce the "asked what's on with nothing scheduled" path — the one that
+// regressed into dumping the whole menu in front of the answer.
+const EMPTY_EVENTS_BLOCK = `## Upcoming events
+(none scheduled yet — if the user asks what's on, reply in ONE warm line that nothing's on the calendar yet and invite them to be the first via "create event". Reply with only that line — do NOT show the menu.)`;
+
 function volatileBlock(extra = ""): string {
   return `# Volatile context
 
@@ -64,7 +70,15 @@ interface Case {
   volatileExtra?: string;
   // If set, the reply must match this (e.g. a venture pitch, not the menu).
   mustMatch?: RegExp;
+  // If set, the reply must NOT match this (e.g. the menu bundled with an answer).
+  mustNotMatch?: RegExp;
+  // Override the events block for this case (defaults to the populated one).
+  eventsBlock?: string;
 }
+
+// Distinctive menu lines — if any appear, the model dumped the menu. Used to
+// assert the menu is NOT stapled onto a reply that already answered.
+const MENU_FINGERPRINT = /find me a buddy|who is here|free for 30|opt out|see this menu/i;
 
 const CASES: Case[] = [
   { name: "help → menu, no marker", message: "help", expectMarker: null },
@@ -75,6 +89,17 @@ const CASES: Case[] = [
     expectMarker: null,
     // Must surface a real event from the block, not the menu / a hallucination.
     mustMatch: /founders coffee|rooftop drinks|caf[ée] marly|09:00|20:00/i,
+    mustNotMatch: MENU_FINGERPRINT,
+  },
+  {
+    name: "what's on, no events → invites create, no menu dump",
+    message: "which is the upcoming events?",
+    expectMarker: null,
+    eventsBlock: EMPTY_EVENTS_BLOCK,
+    // Should say there's nothing scheduled and point at create event…
+    mustMatch: /create event|be the first|nothing.*(?:calendar|scheduled|yet)|no events?/i,
+    // …WITHOUT stapling the whole menu in front of the answer (the regressed bug).
+    mustNotMatch: MENU_FINGERPRINT,
   },
   { name: "find me an AI VC → suggestions, no marker", message: "find me an AI VC", expectMarker: null },
   { name: "off-topic → menu, no marker", message: "what do you think about the weather?", expectMarker: null },
@@ -118,7 +143,7 @@ async function main(): Promise<void> {
     let err: string | null = null;
     try {
       const { text } = await runChat({
-        system: [BASE_SYSTEM_PROMPT, DIRECTORY_BLOCK, EVENTS_BLOCK, volatileBlock(c.volatileExtra ?? "")],
+        system: [BASE_SYSTEM_PROMPT, DIRECTORY_BLOCK, c.eventsBlock ?? EVENTS_BLOCK, volatileBlock(c.volatileExtra ?? "")],
         user: c.message,
         maxTokens: 400,
         expectAction: c.expectMarker === "create_event",
@@ -167,6 +192,10 @@ async function main(): Promise<void> {
       if (c.mustMatch && !c.mustMatch.test(reply)) {
         res.ok = false;
         res.notes.push(`reply didn't match ${c.mustMatch} (likely menu'd instead of pitched)`);
+      }
+      if (c.mustNotMatch && c.mustNotMatch.test(reply)) {
+        res.ok = false;
+        res.notes.push(`reply matched ${c.mustNotMatch} (menu bundled with the answer)`);
       }
     }
 
