@@ -42,6 +42,11 @@ const DIRECTORY_BLOCK = `## Member directory
 - Dana Ortiz (uid u_dana) — growth lead, marketplaces; enriched topics: B2B SaaS, PLG, fintech; energy: group; wants to meet: early-stage operators
 - Evan Park (uid u_evan) — designer, consumer; enriched topics: design systems, agents, UX; energy: 1on1; looking for: design partner customers`;
 
+// A small synthetic upcoming-events list, mirroring the block brain.ts injects.
+const EVENTS_BLOCK = `## Upcoming events (scheduled, soonest first — Paris time)
+- Founders coffee · Wed 9 Jun, 09:00 Paris · Café Marly · host: Alice Chen — open hang
+- Rooftop drinks · Wed 9 Jun, 20:00 Paris · 6e · host: Bjorn Ek`;
+
 function volatileBlock(extra = ""): string {
   return `# Volatile context
 
@@ -64,6 +69,13 @@ interface Case {
 const CASES: Case[] = [
   { name: "help → menu, no marker", message: "help", expectMarker: null },
   { name: "who is here → browse, no marker", message: "who is here", expectMarker: null },
+  {
+    name: "what's on → lists events, no marker",
+    message: "which is the upcoming events?",
+    expectMarker: null,
+    // Must surface a real event from the block, not the menu / a hallucination.
+    mustMatch: /founders coffee|rooftop drinks|caf[ée] marly|09:00|20:00/i,
+  },
   { name: "find me an AI VC → suggestions, no marker", message: "find me an AI VC", expectMarker: null },
   { name: "off-topic → menu, no marker", message: "what do you think about the weather?", expectMarker: null },
   { name: "find me a buddy → intro_buddy marker", message: "find me a buddy", expectMarker: "intro_buddy" },
@@ -106,7 +118,7 @@ async function main(): Promise<void> {
     let err: string | null = null;
     try {
       const { text } = await runChat({
-        system: [BASE_SYSTEM_PROMPT, DIRECTORY_BLOCK, volatileBlock(c.volatileExtra ?? "")],
+        system: [BASE_SYSTEM_PROMPT, DIRECTORY_BLOCK, EVENTS_BLOCK, volatileBlock(c.volatileExtra ?? "")],
         user: c.message,
         maxTokens: 400,
         expectAction: c.expectMarker === "create_event",

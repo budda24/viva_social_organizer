@@ -30,6 +30,7 @@ import {
   describePendingAction,
   executePendingAction,
   parseActionMarker,
+  type OutboxButton,
   type PendingAction,
   type PendingIntroRequest,
 } from "./actions.js";
@@ -333,6 +334,17 @@ async function getMemberDirectory(db: Firestore): Promise<DirectoryMember[]> {
 // mention paired with a question cue.
 const VENTURE_RE = /\b(omnia|online tribes?)\b/i;
 const VENTURE_QUESTION_CUE = /\b(tell|what|whats?|about|explain|who|info|learn|describe|know)\b/i;
+// Browse-events intent: "what's on", "upcoming events", "which events", "list
+// events", "any events", "show events", + French ("événements à venir", "quoi
+// de prévu"). Deliberately requires a listing cue so it doesn't swallow event
+// *creation* ("create event …") or stray uses of the word "event".
+// Two arms: word-initial English/"quoi de prévu" patterns keep \b boundaries;
+// the French "événement(s)" arm is split out without a leading \b, since é is
+// not a \w char so \b never borders it (and "événement" is distinctive enough
+// to need no boundary). Create-event phrasing is routed earlier by
+// CREATE_EVENT_CMD_RE, so overlap here is harmless.
+const LIST_EVENTS_RE =
+  /(?:\b(?:upcoming\s+events?|what'?s\s+on|list\s+(?:the\s+)?events?|any\s+events?|which\s+(?:are\s+the\s+)?(?:upcoming\s+)?events?|show\s+(?:me\s+)?(?:the\s+)?events?|what\s+events?|quoi\s+de\s+pr[ée]vu)\b|[ée]v[ée]nements\b|[ée]v[ée]nements?\s*(?:[àa]\s+venir|pr[ée]vus?))/i;
 function isKnownIntent(body: string): boolean {
   const t = body.trim();
   if (/^\/?help\b/i.test(t)) return true;
@@ -341,9 +353,39 @@ function isKnownIntent(body: string): boolean {
   if (/\bwho(?:'?s| is)?\s*(?:here|around)\b/i.test(t)) return true;
   if (/\bfree\s+(?:for|now)\b/i.test(t)) return true;
   if (/\b(?:create|new)\s+event\b/i.test(t) || /^\/event\b/i.test(t)) return true;
+  // `join <event>` RSVP (text or Join-button token) — answer it even mid-onboarding
+  // so a broadcast that lands before sign-up finishes isn't eaten as a profile answer.
+  if (/^\/?(?:join|rejoindre|participer)\b[:\s-]*\S/i.test(t)) return true;
+  if (LIST_EVENTS_RE.test(t)) return true;
   // Venture promo: a venture name AND a question/request cue (or a "?").
   if (VENTURE_RE.test(t) && (t.includes("?") || VENTURE_QUESTION_CUE.test(t))) return true;
   return false;
+}
+
+// `find me <topic>` is a *browse* (suggest names), never an intro — the intro is
+// the separate `intro me to <name>` verb. `find me a buddy` IS an intro flow, so
+// it's excluded. The prompt says all this, but a local model occasionally emits
+// an `intro_buddy` marker on a topic browse anyway; we enforce the invariant in
+// code (see the backstop below) so a topic search never creates a pending action.
+function isTopicBrowse(body: string): boolean {
+  const t = body.trim();
+  if (!/\bfind me\b/i.test(t)) return false;
+  if (/\bfind\s+(?:me\s+)?(?:a\s+)?buddy\b/i.test(t)) return false;
+  return true;
+}
+
+// Strip a trailing confirm-CTA the model tacks on (EN + FR): "…? Reply `yes`."
+// (intro proposals) or "Confirm with yes …" (event proposals). Only the last
+// sentence is touched (the `[^.!\n]*` can't cross prior sentence ends), so the
+// suggestion itself is preserved. Two uses: the topic-browse backstop below, and
+// producing the Telegram body where a Yes/No button replaces the text CTA.
+const TRAILING_YES_CTA_RE =
+  /\s*(?:[^.!\n]*?\?\s*)?(?:reply|r[ée]ponds?|confirm(?:\s+with)?|confirme(?:\s+avec)?)\s+[`'"]?(?:yes|oui)\b[`'"]?[^.!?\n]*[.!?]?\s*$/i;
+function stripYesCta(reply: string): string {
+  const stripped = reply.replace(TRAILING_YES_CTA_RE, "").trim();
+  // If stripping ate everything (CTA was the whole reply), keep the original —
+  // an empty Telegram body would be rejected by the send path.
+  return stripped || reply;
 }
 
 // ── Directory pre-filter (event-scale fix) ──────────────────────────────────
@@ -428,6 +470,106 @@ function buildDirectoryBlock(members: DirectoryMember[]): string {
   }
   const lines = [`## Member directory (all approved members at VivaTech)`];
   for (const m of members) lines.push(formatMemberLine(m));
+  return lines.join("\n");
+}
+
+// ── Upcoming events block ────────────────────────────────────────────────────
+// The bot has no tool loop (the readEvents tool in tools.ts is a dead stub), so
+// without this block it has zero awareness of scheduled events — asked "what's
+// on" it would invent an answer. Like the member directory, the event list is
+// identical for every user and changes slowly, so it's cached + injected rather
+// than read per message.
+interface UpcomingEvent {
+  id: string;
+  title: string;
+  kind: string;
+  startAtMs: number;
+  addressNeighborhood: string;
+  addressFull: string;
+  hostName: string;
+  description: string;
+}
+
+async function loadUpcomingEvents(db: Firestore): Promise<UpcomingEvent[]> {
+  // Single equality filter only (no orderBy) → no composite index needed; we
+  // filter to future + sort in memory since the event set is tiny.
+  const snap = await db.collection("events").where("status", "==", "scheduled").get();
+  const now = Date.now();
+  return snap.docs
+    .map((d) => {
+      const e = d.data();
+      const startAtMs =
+        e.startAt && typeof e.startAt.toMillis === "function"
+          ? (e.startAt.toMillis() as number)
+          : 0;
+      return {
+        id: d.id,
+        title: String(e.title ?? ""),
+        kind: String(e.kind ?? "other"),
+        startAtMs,
+        addressNeighborhood: String(e.addressNeighborhood ?? ""),
+        addressFull: String(e.addressFull ?? ""),
+        hostName: String(e.hostName ?? ""),
+        description: String(e.description ?? ""),
+      };
+    })
+    .filter((e) => e.startAtMs > now) // future only (≤ EVENTS_TTL_MS staleness)
+    .sort((a, b) => a.startAtMs - b.startAtMs)
+    .slice(0, 15);
+}
+
+// In-process events cache — same stale-while-revalidate + single-flight pattern
+// as the member directory, so a burst of messages triggers one Firestore read.
+const EVENTS_TTL_MS = Number(process.env.EVENTS_TTL_MS ?? 30_000);
+let eventsCache: { events: UpcomingEvent[]; loadedAt: number } | null = null;
+let eventsInflight: Promise<UpcomingEvent[]> | null = null;
+
+async function getUpcomingEvents(db: Firestore): Promise<UpcomingEvent[]> {
+  const isFresh =
+    eventsCache !== null && Date.now() - eventsCache.loadedAt < EVENTS_TTL_MS;
+
+  if (!isFresh && eventsInflight === null) {
+    eventsInflight = loadUpcomingEvents(db)
+      .then((events) => {
+        eventsCache = { events, loadedAt: Date.now() };
+        return events;
+      })
+      .finally(() => {
+        eventsInflight = null;
+      });
+    if (eventsCache !== null) eventsInflight.catch(() => {});
+  }
+
+  if (eventsCache !== null) return eventsCache.events; // fresh or stale-while-revalidate
+  return eventsInflight!; // first ever load — wait for it
+}
+
+function formatEventLine(e: UpcomingEvent): string {
+  const when = new Intl.DateTimeFormat("en-GB", {
+    timeZone: "Europe/Paris",
+    weekday: "short",
+    day: "numeric",
+    month: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).format(new Date(e.startAtMs));
+  const parts = [`- ${e.title}`, `· ${when} Paris`];
+  const place = e.addressFull || e.addressNeighborhood;
+  if (place) parts.push(`· ${place}`);
+  if (e.hostName) parts.push(`· host: ${e.hostName}`);
+  if (e.description) parts.push(`— ${e.description}`);
+  return parts.join(" ");
+}
+
+// The upcoming-events block injected into the prompt. Empty case tells Claude to
+// say so plainly + offer to create one (not invent events).
+function buildEventsBlock(events: UpcomingEvent[]): string {
+  if (events.length === 0) {
+    return `## Upcoming events\n(none scheduled yet — if the user asks what's on, say there are no events yet and offer "create event")`;
+  }
+  const lines = [`## Upcoming events (scheduled, soonest first — Paris time)`];
+  for (const e of events) lines.push(formatEventLine(e));
   return lines.join("\n");
 }
 
@@ -599,16 +741,17 @@ function buildContextBlock(args: {
 async function runClaude(
   userMessage: string,
   directoryBlock: string,
+  eventsBlock: string,
   volatileBlock: string,
   expectAction: boolean
 ): Promise<string> {
-  // The static system prompt and the shared member directory are byte-identical
-  // across users; the small per-request volatile block (time, self, history) is
-  // not. The local backend gets these joined into one system message; the
-  // Anthropic fallback re-applies ephemeral cache_control to the first two blocks
-  // (see llm.ts) to preserve the original prompt-cache economics.
+  // The static system prompt, the shared member directory, and the upcoming-events
+  // block are stable across turns; the small per-request volatile block (time,
+  // self, history) is not. The local backend gets these joined into one system
+  // message; the Anthropic fallback applies ephemeral cache_control to all but the
+  // last block (see llm.ts), so only the volatile block falls outside the cache.
   const { text } = await runChat({
-    system: [BASE_SYSTEM_PROMPT, directoryBlock, volatileBlock],
+    system: [BASE_SYSTEM_PROMPT, directoryBlock, eventsBlock, volatileBlock],
     user: userMessage,
     maxTokens: 400,
     // In EVENT_CREATION_MODE a create_event marker is mandatory — let a markerless
@@ -623,14 +766,28 @@ async function runClaude(
 
 async function writeOutbox(
   db: Firestore,
-  args: { provider: Provider; uid: string; phone?: string; chatId?: number; body: string; type: string }
+  args: {
+    provider: Provider;
+    uid: string;
+    phone?: string;
+    chatId?: number;
+    body: string;
+    type: string;
+    // Telegram-only: tap-buttons + the body to show in their place. `body` stays
+    // the WhatsApp/fallback text (keeps its inline "Reply …" CTA).
+    buttons?: OutboxButton[];
+    telegramBody?: string;
+  }
 ): Promise<void> {
+  const isTelegram = args.provider === "telegram";
+  const body =
+    isTelegram && args.telegramBody !== undefined ? args.telegramBody : args.body;
   const row: Record<string, unknown> = {
     recipientType: "individual",
     recipientUid: args.uid,
     type: args.type,
     provider: args.provider,
-    body: args.body,
+    body,
     status: "queued",
     attempts: 0,
     createdAt: FieldValue.serverTimestamp(),
@@ -638,7 +795,56 @@ async function writeOutbox(
   };
   if (args.provider === "twilio" && args.phone) row.recipientPhone = args.phone;
   if (args.provider === "telegram" && args.chatId !== undefined) row.recipientChatId = args.chatId;
+  if (isTelegram && args.buttons && args.buttons.length > 0) row.buttons = args.buttons;
   await db.collection("whatsappOutbox").add(row);
+}
+
+// `join <event>` / `rejoindre <event>` / `participer <event>` — RSVP. The arg is
+// either an event id (the Join button's callback_data) or a title fragment (a
+// user typing it). Requires a non-empty arg so a bare "join" doesn't match.
+const JOIN_CMD_RE = /^\s*\/?(?:join|rejoindre|participer)\b[:\s-]*(.+)$/i;
+
+async function handleJoin(
+  db: Firestore,
+  uid: string,
+  arg: string,
+  lang: Lang
+): Promise<{ reply: string; joined: boolean }> {
+  // 1. Exact event id — the Join button sends `join <eventId>`.
+  const byId = await db.doc(`events/${arg}`).get();
+  let eventId: string | undefined;
+  let title: string | undefined;
+  if (byId.exists && byId.data()?.status === "scheduled") {
+    eventId = byId.id;
+    title = String(byId.data()?.title ?? "");
+  } else {
+    // 2. Title match against scheduled future events — someone typed the name.
+    const events = await getUpcomingEvents(db);
+    const q = arg.toLowerCase();
+    const matches = events.filter(
+      (e) =>
+        e.title.toLowerCase().includes(q) || q.includes(e.title.toLowerCase())
+    );
+    if (matches.length === 1) {
+      eventId = matches[0].id;
+      title = matches[0].title;
+    } else if (matches.length === 0) {
+      return { reply: msg(lang).rsvpNotFound, joined: false };
+    } else {
+      return { reply: msg(lang).rsvpAmbiguous, joined: false };
+    }
+  }
+
+  await db
+    .collection("events")
+    .doc(eventId)
+    .collection("rsvps")
+    .doc(uid)
+    .set(
+      { uid, status: "going", via: "bot_join", at: FieldValue.serverTimestamp() },
+      { merge: true }
+    );
+  return { reply: msg(lang).rsvpJoined(title || "the event"), joined: true };
 }
 
 export async function processMessage(deps: ProcessMessageDeps): Promise<void> {
@@ -684,7 +890,22 @@ export async function processMessage(deps: ProcessMessageDeps): Promise<void> {
     }
     await setAwaitingLanguage(db, uid, true);
     const reply = msg(lang).langPrompt;
-    await writeOutbox(db, { provider, uid, phone, chatId, body: reply, type: "language_prompt" });
+    // 🇬🇧/🇫🇷 tap-buttons on Telegram. callback_data is "language en/fr" (not a
+    // bare "en"/"fr") so parseLanguageCommand sets it directly even if the
+    // awaitingLanguage prompt has since expired.
+    await writeOutbox(db, {
+      provider,
+      uid,
+      phone,
+      chatId,
+      body: reply,
+      telegramBody: msg(lang).langPromptShort,
+      buttons: [
+        { text: "🇬🇧 English", data: "language en" },
+        { text: "🇫🇷 Français", data: "language fr" },
+      ],
+      type: "language_prompt",
+    });
     await appendTurns(db, uid, [
       { role: "user", content: body, at: Timestamp.now() },
       { role: "assistant", content: reply, at: Timestamp.now() },
@@ -825,6 +1046,20 @@ export async function processMessage(deps: ProcessMessageDeps): Promise<void> {
     await setPendingAction(db, uid, null);
   }
 
+  // RSVP — `join <event>` (typed by name) or the Join button's `join <eventId>`
+  // token. Deterministic write of events/{id}/rsvps/{uid}; no Claude call.
+  const joinMatch = body.match(JOIN_CMD_RE);
+  if (joinMatch) {
+    const result = await handleJoin(db, uid, joinMatch[1].trim(), lang);
+    await writeOutbox(db, { provider, uid, phone, chatId, body: result.reply, type: "rsvp" });
+    await appendTurns(db, uid, [
+      { role: "user", content: body, at: Timestamp.now() },
+      { role: "assistant", content: result.reply, at: Timestamp.now() },
+    ]);
+    await inboxDoc.ref.update({ intent: result.joined ? "rsvp_joined" : "rsvp_miss" });
+    return;
+  }
+
   // Event-creation wizard.
   //
   // Three entry points to the same final state ("eventMode = true, claudeBody
@@ -904,9 +1139,10 @@ export async function processMessage(deps: ProcessMessageDeps): Promise<void> {
     }
   }
 
-  const [history, members] = await Promise.all([
+  const [history, members, upcomingEvents] = await Promise.all([
     loadConversation(db, uid),
     getMemberDirectory(db),
+    getUpcomingEvents(db),
   ]);
   const enrichment = (userData.enrichment ?? {}) as Record<string, unknown>;
   // Pre-filter to the top-K members relevant to this requester+message so only a
@@ -917,6 +1153,15 @@ export async function processMessage(deps: ProcessMessageDeps): Promise<void> {
     topics: Array.isArray(enrichment.topics) ? (enrichment.topics as string[]) : undefined,
   });
   const directoryBlock = buildDirectoryBlock(relevantMembers);
+  const eventsBlock = buildEventsBlock(upcomingEvents);
+  // Past the yes/no fast-path the DB pending action is already cleared. We still
+  // surface it to Claude so a free-text *amendment* ("actually make it 9pm"
+  // after proposing an event) can re-emit the marker — but NOT when the new
+  // message is itself a fresh recognized command (find me / who is here / create
+  // event / …). In that case the stale block is pure noise and, on a borderline
+  // query, derails the local model into the menu fallback (observed: "find me a
+  // development" right after a climate-VC intro offer returned the help menu).
+  const pendingForContext = pending && !isKnownIntent(body) ? pending : undefined;
   const volatileBlock = buildContextBlock({
     uid,
     provider,
@@ -935,15 +1180,30 @@ export async function processMessage(deps: ProcessMessageDeps): Promise<void> {
       enrichmentStatus: enrichment.status as string | undefined,
     },
     history,
-    pendingAction: pending,
+    pendingAction: pendingForContext,
     eventMode,
     freeNowMode,
     freeUntilMs,
     lang,
   });
 
-  const rawReply = await runClaude(claudeBody, directoryBlock, volatileBlock, eventMode);
-  const { reply, action } = parseActionMarker(rawReply);
+  const rawReply = await runClaude(claudeBody, directoryBlock, eventsBlock, volatileBlock, eventMode);
+  let { reply, action } = parseActionMarker(rawReply);
+
+  // Backstop: a `find me <topic>` browse must never create a pending action. The
+  // prompt forbids the marker here, but the local model is unreliable about it,
+  // so if one slips through we drop it and replace any stray "Reply yes" with the
+  // browse nudge — the intro stays the deliberate `intro me to <name>` step.
+  if (action?.kind === "intro_buddy" && isTopicBrowse(body)) {
+    action = null;
+    const cleaned = stripYesCta(reply);
+    // Only append the nudge if the model didn't already point them at the
+    // `intro me to <name>` step (it often does even while wrongly emitting a
+    // marker) — otherwise we'd double up the call-to-action.
+    reply = /intro me to/i.test(cleaned)
+      ? cleaned
+      : `${cleaned}\n\n${msg(lang).introBrowseNudge}`.trim();
+  }
 
   if (action) {
     await setPendingAction(db, uid, action);
@@ -954,12 +1214,29 @@ export async function processMessage(deps: ProcessMessageDeps): Promise<void> {
     { role: "assistant", content: reply, at: Timestamp.now() },
   ]);
 
+  // When Claude proposes an action, offer Yes/No tap-buttons on Telegram (the
+  // tapped token is still "yes"/"no", so the pendingAction fast-path resolves it
+  // unchanged) and drop the now-redundant "Reply yes" text from the Telegram body.
+  let buttons: OutboxButton[] | undefined;
+  let telegramBody: string | undefined;
+  if (action) {
+    const yesLabel =
+      action.kind === "create_event" ? msg(lang).btn.yesCreate : msg(lang).btn.yesPing;
+    buttons = [
+      { text: yesLabel, data: "yes" },
+      { text: msg(lang).btn.no, data: "no" },
+    ];
+    telegramBody = stripYesCta(reply);
+  }
+
   await writeOutbox(db, {
     provider,
     uid,
     phone,
     chatId,
     body: reply,
+    telegramBody,
+    buttons,
     type: action ? "action_proposed" : "bot_reply",
   });
 

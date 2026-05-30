@@ -75,26 +75,50 @@ interface EventAnnounceArgs {
   description?: string;
 }
 
+// Labels for Telegram inline-keyboard CTA buttons. Localized so a French user
+// taps "Oui" not "Yes". The button's callback_data is always the canonical
+// English token ("yes"/"no"/"join <id>") so the brain's text matching is
+// language-independent — only the visible label is translated.
+export interface BtnLabels {
+  yesPing: string; // confirm an intro proposal
+  yesCreate: string; // confirm an event-creation proposal
+  no: string;
+  connect: string; // accept an incoming intro request
+  pass: string; // decline an incoming intro request
+  join: string; // RSVP to a broadcast event
+}
+
 export interface Bundle {
   cancelled: string;
   createEventPrompt: string;
   eventCreated: (title: string, pinged: number, unreachable: number) => string;
-  eventAnnounce: (a: EventAnnounceArgs) => string;
+  // withCta=false drops the trailing "Reply …" line — used on Telegram where a
+  // tap-button replaces it (see brain.ts / actions.ts channel routing).
+  eventAnnounce: (a: EventAnnounceArgs, withCta?: boolean) => string;
   introSent: (name: string) => string;
   introRequest: (
     from: string,
     bio: string,
     opener: string,
-    linkedinUrl?: string
+    linkedinUrl?: string,
+    withCta?: boolean
   ) => string;
   introAccepted: (name: string, contact: string) => string;
   introConnected: (name: string, contact: string) => string;
   introDeclined: string;
   introPassed: string;
   introRequestExpired: string;
+  introBrowseNudge: string;
   contactReachesOut: (name: string) => string;
   langPrompt: string;
+  // Short prompt shown alongside the 🇬🇧/🇫🇷 buttons on Telegram (no "reply" text).
+  langPromptShort: string;
   langSet: (name: string) => string;
+  // RSVP via `join <event>` (or the Join button).
+  rsvpJoined: (title: string) => string;
+  rsvpNotFound: string;
+  rsvpAmbiguous: string;
+  btn: BtnLabels;
   menu: string;
 }
 
@@ -108,21 +132,21 @@ const EN: Bundle = {
     `✓ "${title}" created. Pinging ${pinged} members` +
     (unreachable > 0 ? ` (${unreachable} unreachable)` : "") +
     ".",
-  eventAnnounce: (a) =>
+  eventAnnounce: (a, withCta = true) =>
     [
       `${a.emoji} ${a.title}`,
       `${a.when} · ${a.place}`,
       `Hosted by ${a.hostName}.`,
       ...(a.description ? [a.description] : []),
-      `Reply "join ${a.title}" to RSVP.`,
+      ...(withCta ? [`Reply "join ${a.title}" to RSVP.`] : []),
     ].join("\n"),
   introSent: (name) =>
     `Sent your request to ${name}. I'll let you know if they're in.`,
-  introRequest: (from, bio, opener, linkedinUrl) =>
+  introRequest: (from, bio, opener, linkedinUrl, withCta = true) =>
     `${from}${bio ? ` (${bio})` : ""} wants to connect 👋\n\n` +
     `"${opener}"\n` +
     (linkedinUrl ? `\nCheck them out: ${linkedinUrl}\n` : "") +
-    `\nReply yes to swap contacts, or no to pass.`,
+    (withCta ? `\nReply yes to swap contacts, or no to pass.` : ""),
   introAccepted: (name, contact) =>
     `${name} accepted your intro 🎉\n\nReach them — ${contact}`,
   introConnected: (name, contact) =>
@@ -133,17 +157,33 @@ const EN: Bundle = {
   introPassed: "No problem — I won't share your contact. Passed.",
   introRequestExpired:
     "That request expired — the other person isn't reachable.",
+  introBrowseNudge: "Want an intro? Reply `intro me to` and their name.",
   contactReachesOut: (name) => `${name} (they'll reach out to you)`,
   langPrompt:
     "Which language? Reply english or français.\n" +
     "Quelle langue ? Répondez english ou français.",
+  langPromptShort: "Which language? · Quelle langue ?",
   langSet: (name) => `Done — I'll speak ${name} from now on.`,
+  rsvpJoined: (title) => `You're in for "${title}" 🎟️ See you there.`,
+  rsvpNotFound:
+    'Couldn\'t find that event. Reply "what\'s on" to see what\'s scheduled.',
+  rsvpAmbiguous:
+    'More than one event matches — reply "what\'s on" and use the exact title.',
+  btn: {
+    yesPing: "✅ Yes, ping them",
+    yesCreate: "✅ Yes, create it",
+    no: "✕ No",
+    connect: "🤝 Connect",
+    pass: "Pass",
+    join: "🎟️ Join",
+  },
   menu:
     "Here's what I can do:\n" +
     "• find me a buddy — I pick one person worth meeting and can intro you\n" +
     '• find me <topic> — specific people (e.g. "find me a climate VC")\n' +
     "• create event — propose a meetup; I'll ping everyone who can come\n" +
     "• who is here — quick look at who's in the circle\n" +
+    "• what's on — see the upcoming events\n" +
     "• free for 30 — flag you're free now; I'll find someone free to meet\n" +
     "• language — switch English / Français\n" +
     "• help — see this menu again\n" +
@@ -160,21 +200,21 @@ const FR: Bundle = {
     `✓ « ${title} » créé. J'envoie l'info à ${pinged} membres` +
     (unreachable > 0 ? ` (${unreachable} injoignables)` : "") +
     ".",
-  eventAnnounce: (a) =>
+  eventAnnounce: (a, withCta = true) =>
     [
       `${a.emoji} ${a.title}`,
       `${a.when} · ${a.place}`,
       `Organisé par ${a.hostName}.`,
       ...(a.description ? [a.description] : []),
-      `Répondez « join ${a.title} » pour vous inscrire.`,
+      ...(withCta ? [`Répondez « join ${a.title} » pour vous inscrire.`] : []),
     ].join("\n"),
   introSent: (name) =>
     `Demande envoyée à ${name}. Je te préviens s'il/elle est partant·e.`,
-  introRequest: (from, bio, opener, linkedinUrl) =>
+  introRequest: (from, bio, opener, linkedinUrl, withCta = true) =>
     `${from}${bio ? ` (${bio})` : ""} veut se connecter 👋\n\n` +
     `« ${opener} »\n` +
     (linkedinUrl ? `\nSon profil : ${linkedinUrl}\n` : "") +
-    `\nRéponds oui pour échanger vos contacts, ou non pour passer.`,
+    (withCta ? `\nRéponds oui pour échanger vos contacts, ou non pour passer.` : ""),
   introAccepted: (name, contact) =>
     `${name} a accepté ton intro 🎉\n\nContacte-le/la — ${contact}`,
   introConnected: (name, contact) =>
@@ -185,17 +225,33 @@ const FR: Bundle = {
   introPassed: "Pas de souci — je ne partage pas ton contact. Passé.",
   introRequestExpired:
     "Cette demande a expiré — la personne n'est plus joignable.",
+  introBrowseNudge: "Envie d'une intro ? Réponds `intro me to` suivi de son nom.",
   contactReachesOut: (name) => `${name} (il/elle te recontactera)`,
   langPrompt:
     "Quelle langue ? Répondez english ou français.\n" +
     "Which language? Reply english or français.",
+  langPromptShort: "Quelle langue ? · Which language?",
   langSet: (name) => `C'est noté — je te parle en ${name} désormais.`,
+  rsvpJoined: (title) => `Tu participes à « ${title} » 🎟️ À bientôt.`,
+  rsvpNotFound:
+    "Événement introuvable. Réponds « quoi de prévu » pour voir l'agenda.",
+  rsvpAmbiguous:
+    "Plusieurs événements correspondent — réponds « quoi de prévu » et utilise le titre exact.",
+  btn: {
+    yesPing: "✅ Oui, préviens-le/la",
+    yesCreate: "✅ Oui, créer",
+    no: "✕ Non",
+    connect: "🤝 Se connecter",
+    pass: "Passer",
+    join: "🎟️ Participer",
+  },
   menu:
     "Voici ce que je peux faire :\n" +
     "• trouve-moi un binôme — je choisis une personne à rencontrer et je peux vous présenter\n" +
     "• trouve-moi <sujet> — des personnes précises (ex. « trouve-moi un VC climat »)\n" +
     "• créer événement — propose un rendez-vous ; je préviens ceux que ça intéresse\n" +
     "• qui est là — un aperçu du cercle\n" +
+    "• quoi de prévu — voir les événements à venir\n" +
     "• libre 30 — signale que tu es dispo ; je trouve quelqu'un de libre\n" +
     "• langue — passer English / Français\n" +
     "• help — revoir ce menu\n" +

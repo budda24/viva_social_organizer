@@ -5,6 +5,9 @@ import { resolveUserByChannel } from "../identity";
 import { checkAndIncrement } from "../rateLimit";
 
 const TELEGRAM_WEBHOOK_SECRET = defineSecret("TELEGRAM_WEBHOOK_SECRET");
+// Needed to answer callback queries (stop the button spinner) and clear the
+// keyboard after a tap. Same token the outbox sender uses.
+const TELEGRAM_BOT_TOKEN = defineSecret("TELEGRAM_BOT_TOKEN");
 
 const INVITE_CODE_PATTERN = /^VIVA-[A-Z0-9]{4}-[A-Z0-9]{2}$/;
 
@@ -31,9 +34,16 @@ interface TgMessage {
   chat: TgChat;
   text?: string;
 }
+interface TgCallbackQuery {
+  id: string;
+  from?: TgUser;
+  message?: TgMessage;
+  data?: string;
+}
 interface TgUpdate {
   update_id: number;
   message?: TgMessage;
+  callback_query?: TgCallbackQuery;
 }
 
 /**
@@ -55,7 +65,7 @@ interface TgUpdate {
  */
 export const telegramWebhook = onRequest(
   {
-    secrets: [TELEGRAM_WEBHOOK_SECRET],
+    secrets: [TELEGRAM_WEBHOOK_SECRET, TELEGRAM_BOT_TOKEN],
     region: "europe-central2",
     invoker: "public",
   },
@@ -74,6 +84,16 @@ export const telegramWebhook = onRequest(
     }
 
     const update = req.body as TgUpdate | undefined;
+
+    // Button tap → callback_query. Ack it, clear the keyboard, and route the
+    // button's data into botInbox exactly like a typed message — so the brain's
+    // existing yes/no/command handling resolves it with no special-casing.
+    if (update?.callback_query) {
+      await handleCallbackQuery(update.callback_query, update.update_id);
+      res.status(200).send("ok");
+      return;
+    }
+
     const message = update?.message;
     if (!message || !message.text || message.chat.type !== "private") {
       res.status(200).send("ok");
@@ -310,4 +330,95 @@ async function queueReply(
     attempts: 0,
     createdAt: FieldValue.serverTimestamp(),
   });
+}
+
+/**
+ * Handle an inline-button tap. We acknowledge it (stops the client spinner),
+ * clear the keyboard on the original message (so the same button can't fire
+ * twice), and enqueue the button's callback_data as a botInbox row — identical
+ * shape to a typed message, so the brain processes it through its normal path.
+ */
+async function handleCallbackQuery(
+  cq: TgCallbackQuery,
+  updateId: number
+): Promise<void> {
+  const data = (cq.data ?? "").trim();
+  // Ack first so the tap doesn't hang, even if we end up ignoring it.
+  await answerCallbackQuery(cq.id).catch((e) =>
+    console.warn(`[telegramWebhook] answerCallbackQuery failed: ${e}`)
+  );
+
+  const chat = cq.message?.chat;
+  if (!chat || chat.type !== "private" || !data) return;
+  const chatId = chat.id;
+
+  const db = getFirestore();
+  const user = await resolveUserByChannel("telegram", chatId);
+  if (!user) {
+    console.warn(`[telegramWebhook] callback from unbound chatId=${chatId}`);
+    return;
+  }
+
+  const rate = await checkAndIncrement("telegram", user.uid);
+  if (!rate.allowed) {
+    console.warn(`[telegramWebhook] callback rate-limited uid=${user.uid}`);
+    return;
+  }
+
+  // Remove the keyboard from the tapped message so it reads as "chosen" and a
+  // double-tap can't enqueue the action twice.
+  if (cq.message?.message_id) {
+    await editMessageReplyMarkup(chatId, cq.message.message_id).catch((e) =>
+      console.warn(`[telegramWebhook] editMessageReplyMarkup failed: ${e}`)
+    );
+  }
+
+  const messageId = `tg-${updateId}`;
+  await db.doc(`botInbox/${messageId}`).set(
+    {
+      messageId,
+      provider: "telegram",
+      chatId,
+      tgUsername: cq.from?.username ?? null,
+      uid: user.uid,
+      body: data,
+      viaButton: true,
+      receivedAt: FieldValue.serverTimestamp(),
+      status: "pending",
+      attempts: 0,
+    },
+    { merge: true }
+  );
+}
+
+async function answerCallbackQuery(callbackQueryId: string): Promise<void> {
+  const res = await fetch(
+    `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN.value()}/answerCallbackQuery`,
+    {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ callback_query_id: callbackQueryId }),
+    }
+  );
+  if (!res.ok) {
+    throw new Error(`telegram ${res.status}: ${(await res.text()).slice(0, 200)}`);
+  }
+}
+
+// Clear the inline keyboard from a message (omitting reply_markup removes it).
+async function editMessageReplyMarkup(
+  chatId: number,
+  messageId: number
+): Promise<void> {
+  const res = await fetch(
+    `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN.value()}/editMessageReplyMarkup`,
+    {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ chat_id: chatId, message_id: messageId }),
+    }
+  );
+  if (!res.ok) {
+    throw new Error(`telegram ${res.status}: ${(await res.text()).slice(0, 200)}`);
+  }
 }

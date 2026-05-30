@@ -6,6 +6,42 @@ const TELEGRAM_BOT_TOKEN = defineSecret("TELEGRAM_BOT_TOKEN");
 
 const MAX_ATTEMPTS = 3;
 const MAX_BODY_CHARS = 4096; // Telegram hard limit per sendMessage.
+const MAX_BTN_TEXT = 64; // Telegram button-label cap.
+const MAX_BTN_DATA = 64; // Telegram callback_data cap (bytes).
+
+interface OutboxButton {
+  text?: unknown;
+  data?: unknown;
+}
+
+/**
+ * Build a Telegram inline keyboard from outbox `buttons`. Each becomes a
+ * callback button whose `callback_data` is routed back through the webhook when
+ * tapped. Laid out two-per-row. Returns null if there are no valid buttons (so
+ * the caller omits reply_markup entirely).
+ */
+function buildInlineKeyboard(
+  buttons: unknown
+): Array<Array<{ text: string; callback_data: string }>> | null {
+  if (!Array.isArray(buttons)) return null;
+  const valid = (buttons as OutboxButton[])
+    .filter(
+      (b) =>
+        b &&
+        typeof b.text === "string" &&
+        b.text.trim() &&
+        typeof b.data === "string" &&
+        b.data.trim()
+    )
+    .map((b) => ({
+      text: String(b.text).slice(0, MAX_BTN_TEXT),
+      callback_data: String(b.data).slice(0, MAX_BTN_DATA),
+    }));
+  if (valid.length === 0) return null;
+  const rows: Array<Array<{ text: string; callback_data: string }>> = [];
+  for (let i = 0; i < valid.length; i += 2) rows.push(valid.slice(i, i + 2));
+  return rows;
+}
 
 /**
  * Send outbox rows tagged provider=telegram via the Telegram Bot API.
@@ -50,6 +86,8 @@ export const onTelegramOutboxCreated = onDocumentCreated(
       return;
     }
 
+    const inlineKeyboard = buildInlineKeyboard(claimed.buttons);
+
     try {
       const response = await fetch(
         `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN.value()}/sendMessage`,
@@ -60,6 +98,9 @@ export const onTelegramOutboxCreated = onDocumentCreated(
             chat_id: chatId,
             text: body,
             disable_web_page_preview: true,
+            ...(inlineKeyboard
+              ? { reply_markup: { inline_keyboard: inlineKeyboard } }
+              : {}),
           }),
         }
       );

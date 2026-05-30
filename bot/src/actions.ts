@@ -55,6 +55,15 @@ export interface IntroBuddyAction {
 
 export type PendingAction = CreateEventAction | IntroBuddyAction;
 
+// A Telegram inline-keyboard CTA button. `text` is the (localized) label the
+// user sees; `data` is the canonical token routed back through the inbox when
+// tapped (e.g. "yes", "no", "join <eventId>"). Telegram-only — the Twilio
+// transport ignores it and keeps the text CTA in the body.
+export interface OutboxButton {
+  text: string;
+  data: string;
+}
+
 // Stored on conversationStates/{recipientUid}.pendingIntroRequest while a
 // double-opt-in intro is awaiting the recipient's yes/no. The recipient must
 // accept before either party's contact is shared.
@@ -167,14 +176,21 @@ async function enqueueOutbox(
     type: string;
     eventId?: string;
     sourceUid?: string;
+    // Telegram-only: tap-buttons + the body to show in their place (the `body`
+    // above stays the WhatsApp/fallback text, with its inline "Reply …" CTA).
+    buttons?: OutboxButton[];
+    telegramBody?: string;
   }
 ): Promise<void> {
+  const isTelegram = args.route.provider === "telegram";
+  const body =
+    isTelegram && args.telegramBody !== undefined ? args.telegramBody : args.body;
   const row: Record<string, unknown> = {
     recipientType: "individual",
     recipientUid: args.recipientUid,
     type: args.type,
     provider: args.route.provider,
-    body: args.body,
+    body,
     status: "queued",
     attempts: 0,
     createdAt: FieldValue.serverTimestamp(),
@@ -185,6 +201,9 @@ async function enqueueOutbox(
   }
   if (args.route.provider === "telegram" && args.route.chatId !== undefined) {
     row.recipientChatId = args.route.chatId;
+  }
+  if (isTelegram && args.buttons && args.buttons.length > 0) {
+    row.buttons = args.buttons;
   }
   if (args.eventId) row.eventId = args.eventId;
   if (args.sourceUid) row.sourceUid = args.sourceUid;
@@ -203,21 +222,25 @@ function formatEventAnnouncement(
     addressNeighborhood?: string;
     addressFull?: string;
     description?: string;
-  }
+  },
+  withCta = true
 ): string {
   const when = formatParisTime(args.startAtISO, lang);
   const place =
     args.addressFull ??
     args.addressNeighborhood ??
     (lang === "fr" ? "(lieu à confirmer)" : "(location TBC)");
-  return msg(lang).eventAnnounce({
-    emoji: kindEmoji(args.kind),
-    title: args.title,
-    when,
-    place,
-    hostName: args.hostName,
-    description: args.description,
-  });
+  return msg(lang).eventAnnounce(
+    {
+      emoji: kindEmoji(args.kind),
+      title: args.title,
+      when,
+      place,
+      hostName: args.hostName,
+      description: args.description,
+    },
+    withCta
+  );
 }
 
 function kindEmoji(k: EventKind): string {
@@ -322,7 +345,7 @@ async function executeCreateEvent(
         return;
       }
       const recipientLang = normalizeLang(data.preferredLanguage);
-      const announcement = formatEventAnnouncement(recipientLang, {
+      const announceArgs = {
         hostName,
         title: action.title,
         kind: action.kind_enum,
@@ -330,11 +353,16 @@ async function executeCreateEvent(
         addressNeighborhood: action.addressNeighborhood,
         addressFull: action.addressFull,
         description: action.description,
-      });
+      };
       await enqueueOutbox(db, {
         recipientUid: doc.id,
         route,
-        body: announcement,
+        body: formatEventAnnouncement(recipientLang, announceArgs, true),
+        // On Telegram the Join button replaces the "Reply join …" text line.
+        telegramBody: formatEventAnnouncement(recipientLang, announceArgs, false),
+        buttons: [
+          { text: msg(recipientLang).btn.join, data: `join ${eventRef.id}` },
+        ],
         type: "event_announce",
         eventId: eventRef.id,
         sourceUid: uid,
@@ -348,12 +376,18 @@ async function executeCreateEvent(
   };
 }
 
-// A one-line "who's asking" descriptor from the requester's profile, so the
-// recipient can decide on the request with context.
+// A one-line "who's asking" descriptor auto-pulled from the requester's profile
+// (no extra turn asked of them), so the recipient can decide with context: their
+// bio + what they're at VivaTech to do (goal). The model-drafted opener carries
+// the specific "why this person"; this line carries the durable who/what.
 function bioLine(userData: Record<string, unknown>): string {
   const enr = (userData.enrichment ?? {}) as Record<string, unknown>;
-  const bio = (enr.bio as string) || (userData.bio as string) || "";
-  return bio.slice(0, 90);
+  const bio = ((enr.bio as string) || (userData.bio as string) || "").trim();
+  const goal = ((userData.goal as string) || "").trim();
+  const parts: string[] = [];
+  if (bio) parts.push(bio.slice(0, 90));
+  if (goal) parts.push(`here to ${goal}`);
+  return parts.join(" · ").slice(0, 160);
 }
 
 // The requester's public LinkedIn URL, so the buddy can vet them before
@@ -388,10 +422,17 @@ function contactHandle(
 function contactText(
   lang: Lang,
   name: string,
-  handle: { label: string; link?: string }
+  handle: { label: string; link?: string },
+  linkedinUrl?: string
 ): string {
-  if (handle.link) return `${name} → ${handle.link}`;
-  if (handle.label) return `${name} → ${handle.label}`;
+  // VivaTech is a professional event — LinkedIn is the natural "let's connect
+  // and catch up" handle, so swap it alongside the messaging handle when we
+  // have it. The handle lets them coordinate the actual meetup; LinkedIn lets
+  // them connect properly. Fall back to LinkedIn-only, then the no-handle line.
+  const li = linkedinUrl ? ` · LinkedIn: ${linkedinUrl}` : "";
+  if (handle.link) return `${name} → ${handle.link}${li}`;
+  if (handle.label) return `${name} → ${handle.label}${li}`;
+  if (linkedinUrl) return `${name} → LinkedIn: ${linkedinUrl}`;
   return msg(lang).contactReachesOut(name);
 }
 
@@ -470,6 +511,20 @@ async function executeIntroBuddy(
     recipientUid: action.targetUid,
     route,
     body: requestBody,
+    // On Telegram, Connect/Pass buttons replace the "Reply yes/no" line; the
+    // tapped token is still yes/no so brain.ts's intro-request handler resolves
+    // it unchanged.
+    telegramBody: msg(recipientLang).introRequest(
+      sourceName,
+      fromBio,
+      action.opener,
+      fromLinkedin,
+      false
+    ),
+    buttons: [
+      { text: msg(recipientLang).btn.connect, data: "yes" },
+      { text: msg(recipientLang).btn.pass, data: "no" },
+    ],
     type: "intro_request",
     sourceUid: uid,
   });
@@ -500,6 +555,10 @@ export async function acceptIntroRequest(
 
   const accepterHandle = contactHandle(userData);
   const fromHandle = contactHandle(fromData);
+  // Full contact swap on accept: each side gets the other's LinkedIn too, so
+  // they can connect and catch up — not just the messaging handle.
+  const accepterLinkedin = linkedinUrlOf(userData);
+  const fromLinkedin = linkedinUrlOf(fromData);
 
   // Tell the requester (A) it was accepted, with B's contact — in A's language.
   const fromRoute = pickChannel(fromData);
@@ -509,7 +568,7 @@ export async function acceptIntroRequest(
       route: fromRoute,
       body: msg(fromLang).introAccepted(
         accepterName,
-        contactText(fromLang, accepterName, accepterHandle)
+        contactText(fromLang, accepterName, accepterHandle, accepterLinkedin)
       ),
       type: "intro_accepted",
       sourceUid: uid,
@@ -520,7 +579,7 @@ export async function acceptIntroRequest(
   return {
     reply: msg(deps.lang).introConnected(
       fromName,
-      contactText(deps.lang, fromName, fromHandle)
+      contactText(deps.lang, fromName, fromHandle, fromLinkedin)
     ),
   };
 }
