@@ -15,6 +15,24 @@ import 'package:flutter/material.dart';
 
 import '../theme/app_colors.dart';
 
+// LinkedIn sends us back here with ?error=… when the user backs out of the
+// consent screen or it fails. Turn those raw OAuth codes into a human message.
+// The cancel codes below are what LinkedIn / the OAuth spec emit when the user
+// clicks "Cancel" rather than "Allow".
+String _friendlyLinkedInError(String err, [String? desc]) {
+  const cancelCodes = {
+    'user_cancelled_login',
+    'user_cancelled_authorize',
+    'access_denied',
+  };
+  if (cancelCodes.contains(err)) {
+    return 'No problem — LinkedIn sign-in was cancelled. '
+        'Tap below whenever you’re ready to try again.';
+  }
+  final detail = (desc != null && desc.isNotEmpty) ? ' ($desc)' : '';
+  return 'LinkedIn sign-in didn’t go through$detail. Tap below to try again.';
+}
+
 class LinkedInCallbackScreen extends StatefulWidget {
   const LinkedInCallbackScreen({super.key});
 
@@ -39,7 +57,7 @@ class _LinkedInCallbackScreenState extends State<LinkedInCallbackScreen> {
     final ldErrDesc = uri.queryParameters['error_description'];
 
     if (ldErr != null) {
-      setState(() => _error = 'LinkedIn returned $ldErr: ${ldErrDesc ?? ""}');
+      setState(() => _error = _friendlyLinkedInError(ldErr, ldErrDesc));
       return;
     }
     if (code == null || code.isEmpty) {

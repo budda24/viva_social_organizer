@@ -23,6 +23,24 @@ import '../widgets/status_pill.dart';
 // or a stale code read from a deleted user doc.
 final RegExp _kInviteCodePattern = RegExp(r'^VIVA-[A-Z0-9]{4}-[A-Z0-9]{2}$');
 
+// LinkedIn sends us back to the redirect URI with ?error=… when the user backs
+// out of the consent screen or it fails. Turn those raw OAuth codes into a
+// human message. The cancel codes below are what LinkedIn / the OAuth spec emit
+// when the user clicks "Cancel" rather than "Allow".
+String _friendlyLinkedInError(String err, [String? desc]) {
+  const cancelCodes = {
+    'user_cancelled_login',
+    'user_cancelled_authorize',
+    'access_denied',
+  };
+  if (cancelCodes.contains(err)) {
+    return 'No problem — LinkedIn sign-in was cancelled. '
+        'Tap below whenever you’re ready to try again.';
+  }
+  final detail = (desc != null && desc.isNotEmpty) ? ' ($desc)' : '';
+  return 'LinkedIn sign-in didn’t go through$detail. Tap below to try again.';
+}
+
 class WelcomeScreen extends StatefulWidget {
   const WelcomeScreen({
     super.key,
@@ -59,6 +77,7 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
     final uri = Uri.base;
     final code = uri.queryParameters['code'];
     final ldErr = uri.queryParameters['error'];
+    final ldErrDesc = uri.queryParameters['error_description'];
 
     // Strip ?code=…&state=… from the URL bar IMMEDIATELY so a page refresh
     // doesn't replay the (one-time-use) auth code and get a LinkedIn 400.
@@ -68,7 +87,7 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
     }
 
     if (ldErr != null) {
-      _authError = 'LinkedIn returned $ldErr';
+      _authError = _friendlyLinkedInError(ldErr, ldErrDesc);
       return;
     }
 
