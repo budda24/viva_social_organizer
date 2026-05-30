@@ -32,11 +32,4 @@ class ChannelLinks {
     final text = Uri.encodeComponent('join $twilioSandboxJoinCode');
     return Uri.parse('https://wa.me/$twilioSandboxNumber?text=$text');
   }
-
-  /// Gmail compose link, pre-addressed to [to]. Opens Gmail's compose window
-  /// in a new browser tab — which works without any default mail app, unlike
-  /// `mailto:` (that silently does nothing on desktops with no mail client
-  /// configured, e.g. when the user only reads mail in the browser).
-  static Uri gmailCompose(String to) =>
-      Uri.parse('https://mail.google.com/mail/?view=cm&fs=1&to=$to');
 }

@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 
-import '../config/channel_links.dart';
 import '../theme/app_colors.dart';
+import '../utils/copy_email.dart';
 import '../utils/open_link.dart';
 
 /// Persistent "visit cards" rendered under the top bar on every page.
@@ -196,7 +196,9 @@ class _Chips extends StatelessWidget {
           _LinkChip(
             icon: l.icon,
             label: l.label,
-            onTap: () => openLink(l.email ? ChannelLinks.gmailCompose(l.url) : Uri.parse(l.url)),
+            onTap: l.email
+                ? () => copyEmail(context, l.url)
+                : () => openLink(Uri.parse(l.url)),
           ),
       ],
     );

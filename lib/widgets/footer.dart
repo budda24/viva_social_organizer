@@ -1,8 +1,7 @@
 import 'package:flutter/material.dart';
 
-import '../config/channel_links.dart';
 import '../theme/app_colors.dart';
-import '../utils/open_link.dart';
+import '../utils/copy_email.dart';
 import 'online_tribes_logo.dart';
 
 class AppFooter extends StatelessWidget {
@@ -28,7 +27,7 @@ class AppFooter extends StatelessWidget {
       MouseRegion(
         cursor: SystemMouseCursors.click,
         child: GestureDetector(
-          onTap: () => openLink(ChannelLinks.gmailCompose('franek@online-tribes.com')),
+          onTap: () => copyEmail(context, 'franek@online-tribes.com'),
           child: const Text(
             'franek@online-tribes.com',
             style: TextStyle(
