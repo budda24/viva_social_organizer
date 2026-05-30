@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../config/channel_links.dart';
 import '../theme/app_colors.dart';
 import '../utils/open_link.dart';
 
@@ -28,7 +29,7 @@ class VisitCard extends StatelessWidget {
             name: 'Franek Jablonski',
             tagline: 'Hosting Viva Tribe at VivaTech 2026',
             links: [
-              _Link(icon: Icons.mail_outline, label: 'franek@online-tribes.com', url: 'mailto:franek@online-tribes.com'),
+              _Link(icon: Icons.mail_outline, label: 'franek@online-tribes.com', url: 'franek@online-tribes.com', email: true),
               _Link(icon: Icons.link, label: 'LinkedIn', url: 'https://www.linkedin.com/in/franek-jablonski/'),
               _Link(icon: Icons.code, label: 'GitHub', url: 'https://github.com/budda24'),
               _Link(icon: Icons.phone_iphone, label: 'OnlineTribes app', url: 'https://onlinetribes.qrplanet.com/j2dfu1'),
@@ -41,7 +42,7 @@ class VisitCard extends StatelessWidget {
             name: 'Marianna Jablonska',
             tagline: 'Co-founder · Online Tribes',
             links: [
-              _Link(icon: Icons.mail_outline, label: 'marianna@online-tribes.com', url: 'mailto:marianna@online-tribes.com'),
+              _Link(icon: Icons.mail_outline, label: 'marianna@online-tribes.com', url: 'marianna@online-tribes.com', email: true),
               _Link(icon: Icons.link, label: 'LinkedIn', url: 'https://www.linkedin.com/in/mariannajablonska/'),
             ],
           ),
@@ -52,10 +53,13 @@ class VisitCard extends StatelessWidget {
 }
 
 class _Link {
-  const _Link({required this.icon, required this.label, required this.url});
+  const _Link({required this.icon, required this.label, required this.url, this.email = false});
   final IconData icon;
   final String label;
   final String url;
+  // When true, [url] is a bare email address opened via Gmail compose in a new
+  // tab (rather than a raw URL), so it works without a default mail app.
+  final bool email;
 }
 
 class _HostCard extends StatelessWidget {
@@ -192,7 +196,7 @@ class _Chips extends StatelessWidget {
           _LinkChip(
             icon: l.icon,
             label: l.label,
-            onTap: () => openLink(Uri.parse(l.url)),
+            onTap: () => openLink(l.email ? ChannelLinks.gmailCompose(l.url) : Uri.parse(l.url)),
           ),
       ],
     );
