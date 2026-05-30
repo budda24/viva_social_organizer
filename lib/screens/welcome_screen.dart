@@ -3,13 +3,13 @@ import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:url_launcher/url_launcher.dart';
 import 'package:web/web.dart' as web;
 
 import '../config/channel_links.dart';
 import '../data/sample_data.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_theme.dart';
+import '../utils/open_link.dart';
 import '../widgets/app_scaffold.dart';
 import '../widgets/chat_buttons.dart';
 import '../widgets/mini_speaker_card.dart';
@@ -331,7 +331,7 @@ class _WelcomeBlock extends StatelessWidget {
   final bool needsReauth;
 
   Future<void> _open(Uri url) async {
-    await launchUrl(url, mode: LaunchMode.externalApplication);
+    await openLink(url);
   }
 
   @override

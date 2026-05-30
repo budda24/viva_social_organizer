@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
-import 'package:url_launcher/url_launcher.dart';
 
 import '../theme/app_colors.dart';
+import '../utils/open_link.dart';
 import 'online_tribes_logo.dart';
 
 class AppFooter extends StatelessWidget {
@@ -27,10 +27,7 @@ class AppFooter extends StatelessWidget {
       MouseRegion(
         cursor: SystemMouseCursors.click,
         child: GestureDetector(
-          onTap: () => launchUrl(
-            Uri.parse('mailto:franek@online-tribes.com'),
-            mode: LaunchMode.externalApplication,
-          ),
+          onTap: () => openLink(Uri.parse('mailto:franek@online-tribes.com')),
           child: const Text(
             'franek@online-tribes.com',
             style: TextStyle(

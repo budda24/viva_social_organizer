@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
-import 'package:url_launcher/url_launcher.dart';
 
 import '../theme/app_colors.dart';
+import '../utils/open_link.dart';
 
 /// Persistent "visit cards" rendered under the top bar on every page.
 /// Two hosts stacked: Franek + Marianna. Each card has its own initials,
@@ -192,10 +192,7 @@ class _Chips extends StatelessWidget {
           _LinkChip(
             icon: l.icon,
             label: l.label,
-            onTap: () => launchUrl(
-              Uri.parse(l.url),
-              mode: LaunchMode.externalApplication,
-            ),
+            onTap: () => openLink(Uri.parse(l.url)),
           ),
       ],
     );
