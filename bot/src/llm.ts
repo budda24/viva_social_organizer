@@ -40,6 +40,12 @@ const OLLAMA_KEEP_ALIVE: string | number = parseKeepAlive(process.env.OLLAMA_KEE
 function parseKeepAlive(v: string): string | number {
   return /^-?\d+$/.test(v.trim()) ? Number(v) : v;
 }
+// Qwen3 (and other hybrid-reasoning models) emit <think>…</think> by default,
+// which breaks the ≤280-char + action-marker contract and balloons latency. Set
+// LOCAL_THINK=false to disable it (the right setting for this bot). Unset → the
+// `think` field is omitted entirely, so non-Qwen3 models behave exactly as before.
+const LOCAL_THINK: boolean | undefined =
+  process.env.LOCAL_THINK === undefined ? undefined : process.env.LOCAL_THINK !== "false";
 const ANTHROPIC_MODEL = process.env.CLAUDE_MODEL ?? "claude-haiku-4-5";
 const LOCAL_EMBED_MODEL = process.env.LOCAL_EMBED_MODEL ?? "bge-m3";
 const EMBED_TIMEOUT_MS = Number(process.env.EMBED_TIMEOUT_MS ?? 30_000);
@@ -196,6 +202,7 @@ async function ollamaChat(o: OllamaCallOpts): Promise<string> {
     ],
     stream: false,
     keep_alive: OLLAMA_KEEP_ALIVE,
+    ...(LOCAL_THINK === undefined ? {} : { think: LOCAL_THINK }),
     options: {
       num_ctx: LOCAL_NUM_CTX,
       temperature: o.temperature,

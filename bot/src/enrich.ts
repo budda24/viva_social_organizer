@@ -45,7 +45,7 @@ const ENRICHMENT_SCHEMA: Record<string, unknown> = {
     recentActivity: { type: "string" },
     matchSignals: { type: "string" },
   },
-  required: ["confidence", "bio", "topics", "sources"],
+  required: ["confidence", "bio", "topics", "sources", "rationale"],
 };
 
 type EnrichmentStatus = "pending" | "running" | "complete" | "failed";
@@ -126,6 +126,16 @@ Then triangulate with at least one other source before filling fields.
 Track every URL you fetched in the \`sources\` array so the human reviewing
 can verify.
 
+## Don't let the search query leak into the profile
+
+We add the keyword "VivaTech" to the web search ONLY to help locate the person —
+it is NOT a fact about them. Never list "VivaTech" / "Viva Tech" as a topic, and
+never state the person attended, spoke at, or was featured at VivaTech unless a
+source explicitly says so. Every field (bio, topics, company, recentActivity)
+must be grounded in the sources — if a source doesn't support it, leave it empty.
+The ONE allowed inference is \`matchSignals\` (who they'd benefit from meeting),
+phrased generally.
+
 ## Output
 
 Return ONLY a JSON object on the LAST line of your output. Schema:
@@ -134,11 +144,11 @@ Return ONLY a JSON object on the LAST line of your output. Schema:
   "confidence": "high" | "medium" | "low" | "none",
   "linkedinUrl": "the LinkedIn URL you identified, or empty",
   "sources": ["url1", "url2"],
-  "rationale": "one line on why you're confident (or why you're not)",
+  "rationale": "REQUIRED — one line on why you're confident, or why you're not. Always fill this, even for low/none.",
   "bio": "one-line who they are professionally (max 140 chars), empty if confidence < medium",
-  "topics": ["3 to 5", "interest", "tags"],
+  "topics": ["3 to 5 real interest tags grounded in the sources — never include \"VivaTech\""],
   "company": "current company if confidently known, else empty",
-  "recentActivity": "one short line on visible recent work, else empty",
+  "recentActivity": "one short line on recent work that a SOURCE explicitly states — else empty. Never infer, guess, or mention VivaTech unless a source says so.",
   "matchSignals": "one short line on who they would benefit from meeting at VivaTech, else empty"
 }
 
@@ -296,15 +306,26 @@ function coerceEnrichmentResult(parsed: Record<string, unknown>): EnrichmentResu
         .slice(0, 10)
     : [];
 
-  const linkedinUrl = parsed.linkedinUrl
+  let linkedinUrl = parsed.linkedinUrl
     ? String(parsed.linkedinUrl).slice(0, 300)
     : undefined;
+  // The model routinely leaves linkedinUrl blank even though a profile URL is
+  // sitting in `sources`. Lift it deterministically — but ONLY when we're
+  // confident enough to publish; for low/none we must not assert a LinkedIn we
+  // couldn't verify (that would reintroduce the wrong-person risk the gate prevents).
+  if (!linkedinUrl && (confidence === "high" || confidence === "medium")) {
+    linkedinUrl = sources.find((s) => /linkedin\.com\/in\//i.test(s));
+  }
   const rationale = parsed.rationale ? String(parsed.rationale).slice(0, 300) : undefined;
 
   return {
     bio: String(parsed.bio ?? "").slice(0, 200),
     topics: Array.isArray(parsed.topics)
-      ? (parsed.topics as unknown[]).map(String).slice(0, 6)
+      ? (parsed.topics as unknown[])
+          .map(String)
+          // Safety net: drop the search disambiguator if the model echoed it as a topic.
+          .filter((t) => !/^\s*viva\s?tech\s*$/i.test(t))
+          .slice(0, 6)
       : [],
     company: parsed.company ? String(parsed.company).slice(0, 100) : undefined,
     recentActivity: parsed.recentActivity
