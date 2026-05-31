@@ -75,6 +75,14 @@ interface EventAnnounceArgs {
   description?: string;
 }
 
+// The "your event changed" notice sent to each attendee after an owner edit.
+interface EventUpdateArgs {
+  title: string;
+  when: string;
+  place: string;
+  hostName: string;
+}
+
 // Labels for Telegram inline-keyboard CTA buttons. Localized so a French user
 // taps "Oui" not "Yes". The button's callback_data is always the canonical
 // English token ("yes"/"no"/"join <id>") so the brain's text matching is
@@ -82,10 +90,14 @@ interface EventAnnounceArgs {
 export interface BtnLabels {
   yesPing: string; // confirm an intro proposal
   yesCreate: string; // confirm an event-creation proposal
+  yesCancel: string; // confirm cancelling an event you host
+  yesEdit: string; // confirm an edit to an event you host
   no: string;
   connect: string; // accept an incoming intro request
   pass: string; // decline an incoming intro request
   join: string; // RSVP to a broadcast event
+  edit: string; // "Edit" — prefixes an event title in the `my events` list
+  cancelEvt: string; // "Cancel" — prefixes an event title in the `my events` list
 }
 
 export interface Bundle {
@@ -114,10 +126,38 @@ export interface Bundle {
   // Short prompt shown alongside the 🇬🇧/🇫🇷 buttons on Telegram (no "reply" text).
   langPromptShort: string;
   langSet: (name: string) => string;
-  // RSVP via `join <event>` (or the Join button).
-  rsvpJoined: (title: string) => string;
+  // RSVP via `join <event>` (or the Join button). On RSVP we reveal the exact
+  // address (public listings only show the neighborhood) + the start time, and
+  // — on Telegram, when the event has a forum topic — a link to coordinate.
+  rsvpJoined: (
+    title: string,
+    place: string,
+    when: string,
+    groupLink?: string
+  ) => string;
   rsvpNotFound: string;
   rsvpAmbiguous: string;
+  // Owner event management — `my events`, edit/cancel flows, and the notices
+  // sent to attendees when the host changes or calls off an event.
+  myEventsHeader: string;
+  myEventsEmpty: string;
+  myEventsHint: string;
+  // `what's on` listing — header + warm empty line + a text-channel RSVP hint.
+  // On Telegram the empty line/hint are replaced by a per-event Join tap-button.
+  whatsOnHeader: string;
+  whatsOnEmpty: string;
+  whatsOnHint: string;
+  editPrompt: (title: string) => string;
+  editNoChanges: string;
+  notYourEvent: string;
+  ownedEventAmbiguous: string;
+  eventGone: string;
+  cancelConfirm: (title: string, attendees: number) => string;
+  eventCancelled: (title: string, notified: number) => string;
+  eventAlreadyCancelled: (title: string) => string;
+  eventCancelledNotice: (title: string, hostName: string) => string;
+  eventUpdated: (title: string, notified: number) => string;
+  eventUpdatedNotice: (a: EventUpdateArgs) => string;
   btn: BtnLabels;
   menu: string;
 }
@@ -164,24 +204,76 @@ const EN: Bundle = {
     "Quelle langue ? Répondez english ou français.",
   langPromptShort: "Which language? · Quelle langue ?",
   langSet: (name) => `Done — I'll speak ${name} from now on.`,
-  rsvpJoined: (title) => `You're in for "${title}" 🎟️ See you there.`,
+  rsvpJoined: (title, place, when, groupLink) =>
+    [
+      `You're in for "${title}" 🎟️`,
+      place || when ? `📍 ${[place, when].filter(Boolean).join(" · ")}` : null,
+      groupLink ? `Coordinate with the group: ${groupLink}` : null,
+    ]
+      .filter(Boolean)
+      .join("\n"),
   rsvpNotFound:
     'Couldn\'t find that event. Reply "what\'s on" to see what\'s scheduled.',
   rsvpAmbiguous:
     'More than one event matches — reply "what\'s on" and use the exact title.',
+  myEventsHeader: "Events you host:",
+  myEventsEmpty:
+    "You're not hosting any events yet. Reply `create event` to start one.",
+  myEventsHint: "Reply `edit event <title>` or `cancel event <title>` to manage one.",
+  whatsOnHeader: "Here's what's coming up:",
+  whatsOnEmpty:
+    "Nothing on the calendar yet — want to be the first? Reply `create event`.",
+  whatsOnHint: 'Reply "join" + the event name to RSVP.',
+  editPrompt: (title) =>
+    `Editing "${title}". What should change? (e.g. time to 9am, place to Café X, cap 15, or rename). Reply cancel to stop.`,
+  editNoChanges: "Nothing changed — that's still how the event stands.",
+  notYourEvent: "That's not an event you host, so I can't change it.",
+  ownedEventAmbiguous:
+    "You host more than one event — reply `my events` to pick the one you mean.",
+  eventGone: "That event isn't available anymore.",
+  cancelConfirm: (title, attendees) =>
+    `Cancel "${title}"? ` +
+    (attendees > 0
+      ? `I'll let the ${attendees} ${attendees === 1 ? "person" : "people"} who RSVP'd know. `
+      : "") +
+    "Reply yes to confirm.",
+  eventCancelled: (title, notified) =>
+    `✓ "${title}" cancelled` +
+    (notified > 0 ? ` — notified ${notified} ${notified === 1 ? "person" : "people"}` : "") +
+    ".",
+  eventAlreadyCancelled: (title) => `"${title}" was already cancelled.`,
+  eventCancelledNotice: (title, hostName) =>
+    `Heads up — "${title}"${hostName ? ` (hosted by ${hostName})` : ""} has been cancelled. ✕`,
+  eventUpdated: (title, notified) =>
+    `✓ "${title}" updated` +
+    (notified > 0 ? ` — notified ${notified} ${notified === 1 ? "person" : "people"}` : "") +
+    ".",
+  eventUpdatedNotice: (a) =>
+    [
+      `Update on "${a.title}" 🔄`,
+      [a.when, a.place].filter(Boolean).join(" · "),
+      a.hostName ? `Hosted by ${a.hostName}.` : null,
+    ]
+      .filter(Boolean)
+      .join("\n"),
   btn: {
     yesPing: "✅ Yes, ping them",
     yesCreate: "✅ Yes, create it",
+    yesCancel: "✅ Yes, cancel it",
+    yesEdit: "✅ Yes, update it",
     no: "✕ No",
     connect: "🤝 Connect",
     pass: "Pass",
     join: "🎟️ Join",
+    edit: "✏️ Edit",
+    cancelEvt: "🗑 Cancel",
   },
   menu:
     "Here's what I can do:\n" +
     "• find me a buddy — I pick one person worth meeting and can intro you\n" +
     '• find me <topic> — specific people (e.g. "find me a climate VC")\n' +
     "• create event — propose a meetup; I'll ping everyone who can come\n" +
+    "• my events — edit or cancel an event you host\n" +
     "• who is here — quick look at who's in the circle\n" +
     "• what's on — see the upcoming events\n" +
     "• free for 30 — flag you're free now; I'll find someone free to meet\n" +
@@ -232,24 +324,77 @@ const FR: Bundle = {
     "Which language? Reply english or français.",
   langPromptShort: "Quelle langue ? · Which language?",
   langSet: (name) => `C'est noté — je te parle en ${name} désormais.`,
-  rsvpJoined: (title) => `Tu participes à « ${title} » 🎟️ À bientôt.`,
+  rsvpJoined: (title, place, when, groupLink) =>
+    [
+      `Tu participes à « ${title} » 🎟️`,
+      place || when ? `📍 ${[place, when].filter(Boolean).join(" · ")}` : null,
+      groupLink ? `Rejoins le groupe pour t'organiser : ${groupLink}` : null,
+    ]
+      .filter(Boolean)
+      .join("\n"),
   rsvpNotFound:
     "Événement introuvable. Réponds « quoi de prévu » pour voir l'agenda.",
   rsvpAmbiguous:
     "Plusieurs événements correspondent — réponds « quoi de prévu » et utilise le titre exact.",
+  myEventsHeader: "Les événements que tu organises :",
+  myEventsEmpty:
+    "Tu n'organises encore aucun événement. Réponds `créer événement` pour en lancer un.",
+  myEventsHint:
+    "Réponds `modifier événement <titre>` ou `annuler événement <titre>` pour en gérer un.",
+  whatsOnHeader: "Voici ce qui arrive :",
+  whatsOnEmpty:
+    "Rien au programme pour l'instant — envie d'être le premier ? Réponds `créer événement`.",
+  whatsOnHint: "Réponds « join » + le nom de l'événement pour t'inscrire.",
+  editPrompt: (title) =>
+    `Modification de « ${title} ». Que veux-tu changer ? (ex. heure à 9h, lieu à Café X, cap 15, ou renommer). Réponds annuler pour arrêter.`,
+  editNoChanges: "Rien n'a changé — l'événement reste tel quel.",
+  notYourEvent: "Ce n'est pas un événement que tu organises, je ne peux pas le modifier.",
+  ownedEventAmbiguous:
+    "Tu organises plusieurs événements — réponds `mes événements` pour choisir lequel.",
+  eventGone: "Cet événement n'est plus disponible.",
+  cancelConfirm: (title, attendees) =>
+    `Annuler « ${title} » ? ` +
+    (attendees > 0
+      ? `Je préviendrai ${attendees} ${attendees === 1 ? "personne inscrite" : "personnes inscrites"}. `
+      : "") +
+    "Réponds oui pour confirmer.",
+  eventCancelled: (title, notified) =>
+    `✓ « ${title} » annulé` +
+    (notified > 0 ? ` — ${notified} ${notified === 1 ? "personne prévenue" : "personnes prévenues"}` : "") +
+    ".",
+  eventAlreadyCancelled: (title) => `« ${title} » était déjà annulé.`,
+  eventCancelledNotice: (title, hostName) =>
+    `Info — « ${title} »${hostName ? ` (organisé par ${hostName})` : ""} a été annulé. ✕`,
+  eventUpdated: (title, notified) =>
+    `✓ « ${title} » mis à jour` +
+    (notified > 0 ? ` — ${notified} ${notified === 1 ? "personne prévenue" : "personnes prévenues"}` : "") +
+    ".",
+  eventUpdatedNotice: (a) =>
+    [
+      `Changement sur « ${a.title} » 🔄`,
+      [a.when, a.place].filter(Boolean).join(" · "),
+      a.hostName ? `Organisé par ${a.hostName}.` : null,
+    ]
+      .filter(Boolean)
+      .join("\n"),
   btn: {
     yesPing: "✅ Oui, préviens-le/la",
     yesCreate: "✅ Oui, créer",
+    yesCancel: "✅ Oui, annuler",
+    yesEdit: "✅ Oui, modifier",
     no: "✕ Non",
     connect: "🤝 Se connecter",
     pass: "Passer",
     join: "🎟️ Participer",
+    edit: "✏️ Modifier",
+    cancelEvt: "🗑 Annuler",
   },
   menu:
     "Voici ce que je peux faire :\n" +
     "• trouve-moi un binôme — je choisis une personne à rencontrer et je peux vous présenter\n" +
     "• trouve-moi <sujet> — des personnes précises (ex. « trouve-moi un VC climat »)\n" +
     "• créer événement — propose un rendez-vous ; je préviens ceux que ça intéresse\n" +
+    "• mes événements — modifier ou annuler un événement que tu organises\n" +
     "• qui est là — un aperçu du cercle\n" +
     "• quoi de prévu — voir les événements à venir\n" +
     "• libre 30 — signale que tu es dispo ; je trouve quelqu'un de libre\n" +

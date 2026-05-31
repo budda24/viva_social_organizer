@@ -73,11 +73,21 @@ interface EventCreationState {
   startedAt: Timestamp;
 }
 
+// Owner has run `edit event <title>` and we're waiting for them to describe the
+// change. The next free-text turn is routed to Claude in EDIT_EVENT_MODE with
+// this eventId as the authoritative target.
+interface EditEventState {
+  step: "awaiting_changes";
+  eventId: string;
+  startedAt: Timestamp;
+}
+
 interface ConvoState {
   turns?: Turn[];
   pendingAction?: PendingAction;
   pendingActionAt?: Timestamp;
   eventCreation?: EventCreationState;
+  editEvent?: EditEventState;
   pendingIntroRequest?: PendingIntroRequest;
   awaitingLanguage?: boolean;
 }
@@ -207,6 +217,29 @@ async function setEventCreation(
   }
 }
 
+async function setEditEvent(
+  db: Firestore,
+  uid: string,
+  eventId: string | null
+): Promise<void> {
+  const ref = db.doc(`conversationStates/${uid}`);
+  if (eventId) {
+    await ref.set(
+      {
+        uid,
+        editEvent: { step: "awaiting_changes", eventId, startedAt: Timestamp.now() },
+        updatedAt: FieldValue.serverTimestamp(),
+      },
+      { merge: true }
+    );
+  } else {
+    await ref.set(
+      { uid, editEvent: FieldValue.delete(), updatedAt: FieldValue.serverTimestamp() },
+      { merge: true }
+    );
+  }
+}
+
 // `free now`, `free`, `free for 30`, `free for 1h`, `free for 90m`, plus the
 // French equivalents `libre`, `dispo`, `disponible` (+ same duration tail).
 // Returns the availability window in minutes (default 60). Doesn't match
@@ -231,6 +264,20 @@ function parseFreeCommand(text: string): { matched: boolean; minutes: number } {
 function formatParisHHMM(ms: number): string {
   return new Intl.DateTimeFormat("en-GB", {
     timeZone: "Europe/Paris",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).format(new Date(ms));
+}
+
+// Full date + time in Paris, localized — used in the RSVP confirmation so the
+// attendee knows exactly when (the public listing already showed roughly when).
+function formatParisDateTime(ms: number, lang: Lang = "en"): string {
+  return new Intl.DateTimeFormat(lang === "fr" ? "fr-FR" : "en-GB", {
+    timeZone: "Europe/Paris",
+    weekday: "short",
+    day: "numeric",
+    month: "short",
     hour: "2-digit",
     minute: "2-digit",
     hour12: false,
@@ -345,6 +392,13 @@ const VENTURE_QUESTION_CUE = /\b(tell|what|whats?|about|explain|who|info|learn|d
 // CREATE_EVENT_CMD_RE, so overlap here is harmless.
 const LIST_EVENTS_RE =
   /(?:\b(?:upcoming\s+events?|what'?s\s+on|list\s+(?:the\s+)?events?|any\s+events?|which\s+(?:are\s+the\s+)?(?:upcoming\s+)?events?|show\s+(?:me\s+)?(?:the\s+)?events?|what\s+events?|quoi\s+de\s+pr[ée]vu)\b|[ée]v[ée]nements\b|[ée]v[ée]nements?\s*(?:[àa]\s+venir|pr[ée]vus?))/i;
+// An EXPLICIT create command (verb + event), as opposed to a bare "événement" or
+// a list query. The `what's on` listing is routed before the create wizard (so
+// the French "événement à venir" lands as a list, not creation), so it must
+// defer to a real create command whose description happens to contain list words
+// (e.g. "create event: upcoming-events recap").
+const EXPLICIT_CREATE_RE =
+  /^\s*(?:\/[\w-]*event|(?:create|new|add)[\s_-]?event|(?:cr[ée]er|nouvel|nouvelle|ajouter)[\s_-]?[ée]v[ée]nement)\b/i;
 function isKnownIntent(body: string): boolean {
   const t = body.trim();
   if (/^\/?help\b/i.test(t)) return true;
@@ -353,6 +407,10 @@ function isKnownIntent(body: string): boolean {
   if (/\bwho(?:'?s| is)?\s*(?:here|around)\b/i.test(t)) return true;
   if (/\bfree\s+(?:for|now)\b/i.test(t)) return true;
   if (/\b(?:create|new)\s+event\b/i.test(t) || /^\/event\b/i.test(t)) return true;
+  // Owner event management — `my events`, edit/cancel (typed or button callback).
+  if (MY_EVENTS_RE.test(t)) return true;
+  if (CANCEL_EVENT_CMD_RE.test(t) || CANCELEVT_BTN_RE.test(t)) return true;
+  if (EDIT_EVENT_CMD_RE.test(t) || EDITEVT_BTN_RE.test(t)) return true;
   // `join <event>` RSVP (text or Join-button token) — answer it even mid-onboarding
   // so a broadcast that lands before sign-up finishes isn't eaten as a profile answer.
   if (/^\/?(?:join|rejoindre|participer)\b[:\s-]*\S/i.test(t)) return true;
@@ -555,7 +613,10 @@ function formatEventLine(e: UpcomingEvent): string {
     hour12: false,
   }).format(new Date(e.startAtMs));
   const parts = [`- ${e.title}`, `· ${when} Paris`];
-  const place = e.addressFull || e.addressNeighborhood;
+  // Public listings expose the neighborhood only — the exact address
+  // (addressFull) is revealed to a member when they RSVP (see handleJoin), so we
+  // deliberately never put it in the LLM context block.
+  const place = e.addressNeighborhood;
   if (place) parts.push(`· ${place}`);
   if (e.hostName) parts.push(`· host: ${e.hostName}`);
   if (e.description) parts.push(`— ${e.description}`);
@@ -637,6 +698,16 @@ function buildContextBlock(args: {
   history: Turn[];
   pendingAction?: PendingAction;
   eventMode?: boolean;
+  editMode?: boolean;
+  editEvent?: {
+    eventId: string;
+    title: string;
+    kind: string;
+    startAtISO: string;
+    addressNeighborhood: string;
+    addressFull: string;
+    capacity: number | null;
+  };
   freeNowMode?: boolean;
   freeUntilMs?: number;
   lang: Lang;
@@ -679,6 +750,30 @@ function buildContextBlock(args: {
     );
     lines.push(
       `If they're trying to cancel ("nvm", "skip", "actually no"), reply "Cancelled." with no marker.`
+    );
+    lines.push(``);
+  }
+  if (args.editMode && args.editEvent) {
+    const e = args.editEvent;
+    lines.push(`# EDIT_EVENT_MODE (single-turn directive)`);
+    lines.push(
+      `The user hosts this event and is describing a change to it. Apply ONLY what they ask; keep every other field as-is.`
+    );
+    lines.push(`Current event:`);
+    lines.push(`- title: ${e.title}`);
+    lines.push(`- kind: ${e.kind}`);
+    lines.push(`- starts (ISO): ${e.startAtISO || "(unknown)"}`);
+    lines.push(`- neighborhood: ${e.addressNeighborhood || "(none)"}`);
+    lines.push(`- full address: ${e.addressFull || "(none)"}`);
+    lines.push(`- capacity: ${e.capacity ?? "unlimited"}`);
+    lines.push(
+      `Reply with a one-line preview of the change (e.g. "Moved to 9:00 — Café X. Confirm with yes.") then an \`edit_event\` action marker.`
+    );
+    lines.push(
+      `Marker: {"kind":"edit_event","changes":{ ...only the fields that change... }}. Allowed change fields: title, startAtISO (ISO-8601 Paris time, resolve "9am"/"tomorrow" against the current start above and the Paris time below), addressNeighborhood, addressFull, capacity. Do NOT include an eventId — the harness supplies it.`
+    );
+    lines.push(
+      `If their message names no concrete change, ask ONE short follow-up with no marker. If they back out ("nvm"), reply "Cancelled." with no marker.`
     );
     lines.push(``);
   }
@@ -808,7 +903,8 @@ async function handleJoin(
   db: Firestore,
   uid: string,
   arg: string,
-  lang: Lang
+  lang: Lang,
+  provider: Provider
 ): Promise<{ reply: string; joined: boolean }> {
   // 1. Exact event id — the Join button sends `join <eventId>`.
   const byId = await db.doc(`events/${arg}`).get();
@@ -844,7 +940,189 @@ async function handleJoin(
       { uid, status: "going", via: "bot_join", at: FieldValue.serverTimestamp() },
       { merge: true }
     );
-  return { reply: msg(lang).rsvpJoined(title || "the event"), joined: true };
+
+  // Now that they're in, reveal the exact address (public listings only show the
+  // neighborhood), the start time, and — on Telegram, if a forum topic exists —
+  // a link to coordinate with the other attendees.
+  const evSnap =
+    byId.exists && byId.id === eventId ? byId : await db.doc(`events/${eventId}`).get();
+  const ev = (evSnap.data() ?? {}) as Record<string, unknown>;
+  const place = String(ev.addressFull || ev.addressNeighborhood || "");
+  const startAt = ev.startAt as Timestamp | undefined;
+  const when =
+    startAt && typeof startAt.toMillis === "function"
+      ? formatParisDateTime(startAt.toMillis(), lang)
+      : "";
+  const topicLink =
+    provider === "telegram" && typeof ev.telegramTopicLink === "string"
+      ? ev.telegramTopicLink
+      : "";
+  return {
+    reply: msg(lang).rsvpJoined(title || "the event", place, when, topicLink || undefined),
+    joined: true,
+  };
+}
+
+// ── Owner event management (my events / edit / cancel) ──────────────────────
+// These must be matched BEFORE the create-event wizard: CREATE_EVENT_CMD_RE
+// matches a bare "événement", so "annuler événement" would otherwise be eaten as
+// a creation attempt. cancel/edit accept a typed title fragment OR a literal
+// event id — the `my events` inline keyboard sends `cancelevt <id>` / `editevt
+// <id>` callbacks, which the webhook routes in as plain text.
+const MY_EVENTS_RE = /^\s*\/?(?:my\s+events?|mes\s+[ée]v[ée]nements?)\s*$/i;
+const CANCEL_EVENT_CMD_RE =
+  /^\s*\/?(?:cancel|delete|annuler|supprimer)[\s_-]?(?:event|[ée]v[ée]nement)\b[:\s-]*(.*)$/i;
+const EDIT_EVENT_CMD_RE =
+  /^\s*\/?(?:edit|modifier|changer)[\s_-]?(?:event|[ée]v[ée]nement)\b[:\s-]*(.*)$/i;
+const CANCELEVT_BTN_RE = /^\s*cancelevt\s+(\S+)\s*$/i;
+const EDITEVT_BTN_RE = /^\s*editevt\s+(\S+)\s*$/i;
+
+// `byId` is true when the arg is a literal event id (button callback), false
+// when it's a typed title fragment.
+function matchCancelEvent(text: string): { matched: boolean; byId: boolean; arg: string } {
+  const btn = text.match(CANCELEVT_BTN_RE);
+  if (btn) return { matched: true, byId: true, arg: btn[1] };
+  const cmd = text.match(CANCEL_EVENT_CMD_RE);
+  if (cmd) return { matched: true, byId: false, arg: cmd[1].trim() };
+  return { matched: false, byId: false, arg: "" };
+}
+function matchEditEvent(text: string): { matched: boolean; byId: boolean; arg: string } {
+  const btn = text.match(EDITEVT_BTN_RE);
+  if (btn) return { matched: true, byId: true, arg: btn[1] };
+  const cmd = text.match(EDIT_EVENT_CMD_RE);
+  if (cmd) return { matched: true, byId: false, arg: cmd[1].trim() };
+  return { matched: false, byId: false, arg: "" };
+}
+
+interface OwnedEvent {
+  id: string;
+  data: Record<string, unknown>;
+}
+type ResolveOwnedResult =
+  | { ok: true; event: OwnedEvent }
+  | { ok: false; reason: "notfound" | "notyours" | "ambiguous" };
+
+// Resolve the event a cancel/edit command refers to, scoped to events the caller
+// HOSTS (status=scheduled). By id (button) we still verify ownership; by title we
+// only ever search the caller's own events, so a non-owner can never target one.
+async function resolveOwnedEvent(
+  db: Firestore,
+  uid: string,
+  arg: string,
+  byId: boolean
+): Promise<ResolveOwnedResult> {
+  if (byId) {
+    const snap = await db.doc(`events/${arg}`).get();
+    if (!snap.exists || snap.data()?.status !== "scheduled") {
+      return { ok: false, reason: "notfound" };
+    }
+    if (snap.data()?.hostUid !== uid) return { ok: false, reason: "notyours" };
+    return { ok: true, event: { id: snap.id, data: snap.data() ?? {} } };
+  }
+  // Title fragment — search only the caller's own scheduled events. Two equality
+  // filters need no composite index (single-field indexes merge-join).
+  const snap = await db
+    .collection("events")
+    .where("hostUid", "==", uid)
+    .where("status", "==", "scheduled")
+    .get();
+  const mine: OwnedEvent[] = snap.docs.map((d) => ({ id: d.id, data: d.data() ?? {} }));
+  if (mine.length === 0) return { ok: false, reason: "notfound" };
+  const q = arg.trim().toLowerCase();
+  if (!q) {
+    // No title given (e.g. bare "edit event") — use the only one, else ask.
+    if (mine.length === 1) return { ok: true, event: mine[0] };
+    return { ok: false, reason: "ambiguous" };
+  }
+  const matches = mine.filter((e) => {
+    const t = String(e.data.title ?? "").toLowerCase();
+    return t.includes(q) || q.includes(t);
+  });
+  if (matches.length === 1) return { ok: true, event: matches[0] };
+  if (matches.length === 0) return { ok: false, reason: "notfound" };
+  return { ok: false, reason: "ambiguous" };
+}
+
+// The reason→message mapping shared by cancel and edit when resolution fails.
+function ownedEventMissReply(reason: "notfound" | "notyours" | "ambiguous", lang: Lang): string {
+  if (reason === "notyours") return msg(lang).notYourEvent;
+  if (reason === "ambiguous") return msg(lang).ownedEventAmbiguous;
+  return msg(lang).rsvpNotFound;
+}
+
+// Build the `my events` reply: a list of the caller's scheduled events with
+// per-event Edit/Cancel tap-buttons on Telegram, and a typed-command hint in the
+// WhatsApp/fallback body.
+async function buildMyEventsReply(
+  db: Firestore,
+  uid: string,
+  lang: Lang
+): Promise<{ body: string; telegramBody: string; buttons?: OutboxButton[] }> {
+  const snap = await db
+    .collection("events")
+    .where("hostUid", "==", uid)
+    .where("status", "==", "scheduled")
+    .get();
+  const mine = snap.docs
+    .map((d) => {
+      const e = d.data();
+      const startAt = e.startAt as Timestamp | undefined;
+      return {
+        id: d.id,
+        title: String(e.title ?? ""),
+        startAtMs: startAt && typeof startAt.toMillis === "function" ? startAt.toMillis() : 0,
+        neighborhood: String(e.addressNeighborhood ?? ""),
+      };
+    })
+    .sort((a, b) => a.startAtMs - b.startAtMs);
+
+  if (mine.length === 0) {
+    const empty = msg(lang).myEventsEmpty;
+    return { body: empty, telegramBody: empty };
+  }
+
+  const lines = [msg(lang).myEventsHeader];
+  const buttons: OutboxButton[] = [];
+  for (const e of mine) {
+    const when = e.startAtMs ? formatParisDateTime(e.startAtMs, lang) : "";
+    lines.push(`- ${e.title}${[when, e.neighborhood].filter(Boolean).length ? ` · ${[when, e.neighborhood].filter(Boolean).join(" · ")}` : ""}`);
+    buttons.push({ text: `${msg(lang).btn.edit} ${e.title}`.slice(0, 60), data: `editevt ${e.id}` });
+    buttons.push({ text: `${msg(lang).btn.cancelEvt} ${e.title}`.slice(0, 60), data: `cancelevt ${e.id}` });
+  }
+  const list = lines.join("\n");
+  return {
+    body: `${list}\n${msg(lang).myEventsHint}`,
+    telegramBody: list,
+    buttons,
+  };
+}
+
+// Build the `what's on` reply: upcoming events with a per-event Join tap-button
+// on Telegram (callback `join <id>`, resolved by handleJoin), and a typed-command
+// hint in the WhatsApp/fallback body. Handled deterministically by the harness —
+// the LLM can't emit Telegram buttons — so a member can RSVP with one tap instead
+// of typing `join <title>`. Public listing shows the neighborhood only; the exact
+// address is revealed on RSVP (mirrors the broadcast in actions.ts).
+const WHATS_ON_MAX = 8;
+async function buildWhatsOnReply(
+  db: Firestore,
+  lang: Lang
+): Promise<{ body: string; telegramBody: string; buttons?: OutboxButton[] }> {
+  const events = (await getUpcomingEvents(db)).slice(0, WHATS_ON_MAX);
+  if (events.length === 0) {
+    const empty = msg(lang).whatsOnEmpty;
+    return { body: empty, telegramBody: empty };
+  }
+  const lines = [msg(lang).whatsOnHeader];
+  const buttons: OutboxButton[] = [];
+  for (const e of events) {
+    const when = e.startAtMs ? formatParisDateTime(e.startAtMs, lang) : "";
+    const meta = [when, e.addressNeighborhood].filter(Boolean).join(" · ");
+    lines.push(`- ${e.title}${meta ? ` · ${meta}` : ""}`);
+    buttons.push({ text: `${msg(lang).btn.join} ${e.title}`.slice(0, 60), data: `join ${e.id}` });
+  }
+  const list = lines.join("\n");
+  return { body: `${list}\n${msg(lang).whatsOnHint}`, telegramBody: list, buttons };
 }
 
 export async function processMessage(deps: ProcessMessageDeps): Promise<void> {
@@ -1050,13 +1328,130 @@ export async function processMessage(deps: ProcessMessageDeps): Promise<void> {
   // token. Deterministic write of events/{id}/rsvps/{uid}; no Claude call.
   const joinMatch = body.match(JOIN_CMD_RE);
   if (joinMatch) {
-    const result = await handleJoin(db, uid, joinMatch[1].trim(), lang);
+    const result = await handleJoin(db, uid, joinMatch[1].trim(), lang, provider);
     await writeOutbox(db, { provider, uid, phone, chatId, body: result.reply, type: "rsvp" });
     await appendTurns(db, uid, [
       { role: "user", content: body, at: Timestamp.now() },
       { role: "assistant", content: result.reply, at: Timestamp.now() },
     ]);
     await inboxDoc.ref.update({ intent: result.joined ? "rsvp_joined" : "rsvp_miss" });
+    return;
+  }
+
+  // ── Owner event management: my events / cancel / edit ─────────────────────
+  // Routed before the create-event wizard (CREATE_EVENT_CMD_RE matches a bare
+  // "événement", which would otherwise swallow "annuler événement").
+
+  // `my events` — list the caller's own events with Edit/Cancel tap-buttons.
+  if (MY_EVENTS_RE.test(body)) {
+    const r = await buildMyEventsReply(db, uid, lang);
+    await writeOutbox(db, {
+      provider,
+      uid,
+      phone,
+      chatId,
+      body: r.body,
+      telegramBody: r.telegramBody,
+      buttons: r.buttons,
+      type: "my_events",
+    });
+    await appendTurns(db, uid, [
+      { role: "user", content: body, at: Timestamp.now() },
+      { role: "assistant", content: r.body, at: Timestamp.now() },
+    ]);
+    await inboxDoc.ref.update({ intent: "my_events" });
+    return;
+  }
+
+  // `what's on` / upcoming events — list scheduled events with a per-event Join
+  // tap-button on Telegram (typed `join <title>` still works as the fallback).
+  // Deterministic (the LLM can't emit buttons). Routed before the create wizard
+  // so the French "événement à venir" lands as a list, but deferring to an
+  // explicit create command so its description can still mention list words.
+  if (LIST_EVENTS_RE.test(body) && !EXPLICIT_CREATE_RE.test(body)) {
+    const r = await buildWhatsOnReply(db, lang);
+    await writeOutbox(db, {
+      provider,
+      uid,
+      phone,
+      chatId,
+      body: r.body,
+      telegramBody: r.telegramBody,
+      buttons: r.buttons,
+      type: "whats_on",
+    });
+    await appendTurns(db, uid, [
+      { role: "user", content: body, at: Timestamp.now() },
+      { role: "assistant", content: r.body, at: Timestamp.now() },
+    ]);
+    await inboxDoc.ref.update({ intent: "whats_on" });
+    return;
+  }
+
+  // `cancel event <title>` / `delete event <title>` / button `cancelevt <id>` —
+  // resolve + ownership-check, then stage a `cancel_event` pendingAction so the
+  // destructive step needs an explicit `yes` (the existing yes/no fast-path runs
+  // executeCancelEvent → soft-delete + notify attendees).
+  const cancelCmd = matchCancelEvent(body);
+  if (cancelCmd.matched) {
+    const res = await resolveOwnedEvent(db, uid, cancelCmd.arg, cancelCmd.byId);
+    let reply: string;
+    let buttons: OutboxButton[] | undefined;
+    if (!res.ok) {
+      reply = ownedEventMissReply(res.reason, lang);
+    } else {
+      const title = String(res.event.data.title ?? "");
+      const rsvps = await db
+        .collection("events")
+        .doc(res.event.id)
+        .collection("rsvps")
+        .where("status", "==", "going")
+        .get();
+      const attendees = rsvps.docs.filter((d) => d.id !== uid).length;
+      await setPendingAction(db, uid, { kind: "cancel_event", eventId: res.event.id, title });
+      reply = msg(lang).cancelConfirm(title, attendees);
+      buttons = [
+        { text: msg(lang).btn.yesCancel, data: "yes" },
+        { text: msg(lang).btn.no, data: "no" },
+      ];
+    }
+    await writeOutbox(db, {
+      provider,
+      uid,
+      phone,
+      chatId,
+      body: reply,
+      telegramBody: buttons ? stripYesCta(reply) : undefined,
+      buttons,
+      type: "cancel_confirm",
+    });
+    await appendTurns(db, uid, [
+      { role: "user", content: body, at: Timestamp.now() },
+      { role: "assistant", content: reply, at: Timestamp.now() },
+    ]);
+    await inboxDoc.ref.update({ intent: res.ok ? "cancel_confirm" : "cancel_miss" });
+    return;
+  }
+
+  // `edit event <title>` / button `editevt <id>` — resolve + ownership-check,
+  // then park editEvent state and ask what to change. The next free-text turn is
+  // routed to Claude in EDIT_EVENT_MODE (handled in the wizard block below).
+  const editCmd = matchEditEvent(body);
+  if (editCmd.matched) {
+    const res = await resolveOwnedEvent(db, uid, editCmd.arg, editCmd.byId);
+    let reply: string;
+    if (!res.ok) {
+      reply = ownedEventMissReply(res.reason, lang);
+    } else {
+      await setEditEvent(db, uid, res.event.id);
+      reply = msg(lang).editPrompt(String(res.event.data.title ?? "the event"));
+    }
+    await writeOutbox(db, { provider, uid, phone, chatId, body: reply, type: "edit_prompt" });
+    await appendTurns(db, uid, [
+      { role: "user", content: body, at: Timestamp.now() },
+      { role: "assistant", content: reply, at: Timestamp.now() },
+    ]);
+    await inboxDoc.ref.update({ intent: res.ok ? "edit_started" : "edit_miss" });
     return;
   }
 
@@ -1075,6 +1470,9 @@ export async function processMessage(deps: ProcessMessageDeps): Promise<void> {
   // as a pendingAction; the user then confirms with `yes` to actually write
   // the event + fan out the broadcast.
   let eventMode = false;
+  let editMode = false;
+  let editEventId: string | undefined;
+  let editEventData: Record<string, unknown> | undefined;
   let claudeBody = body;
 
   const createCmd = matchCreateEventCommand(body);
@@ -1120,6 +1518,42 @@ export async function processMessage(deps: ProcessMessageDeps): Promise<void> {
     }
     eventMode = true;
     await setEventCreation(db, uid, null);
+  } else if (convoState.editEvent?.step === "awaiting_changes") {
+    // Continuation of `edit event` — this message describes the change(s).
+    if (/^(cancel|nvm|skip|abort|annuler|annule|laisse tomber)$/i.test(body)) {
+      await setEditEvent(db, uid, null);
+      const cancelMsg = msg(lang).cancelled;
+      await writeOutbox(db, { provider, uid, phone, chatId, body: cancelMsg, type: "edit_cancel" });
+      await appendTurns(db, uid, [
+        { role: "user", content: body, at: Timestamp.now() },
+        { role: "assistant", content: cancelMsg, at: Timestamp.now() },
+      ]);
+      await inboxDoc.ref.update({ intent: "edit_cancelled" });
+      return;
+    }
+    const evId = convoState.editEvent.eventId;
+    const evSnap = await db.doc(`events/${evId}`).get();
+    // Re-verify the event still exists, is scheduled, and is still theirs before
+    // spending a Claude turn on it.
+    if (
+      !evSnap.exists ||
+      evSnap.data()?.status !== "scheduled" ||
+      evSnap.data()?.hostUid !== uid
+    ) {
+      await setEditEvent(db, uid, null);
+      const gone = msg(lang).eventGone;
+      await writeOutbox(db, { provider, uid, phone, chatId, body: gone, type: "edit_gone" });
+      await appendTurns(db, uid, [
+        { role: "user", content: body, at: Timestamp.now() },
+        { role: "assistant", content: gone, at: Timestamp.now() },
+      ]);
+      await inboxDoc.ref.update({ intent: "edit_gone" });
+      return;
+    }
+    editMode = true;
+    editEventId = evId;
+    editEventData = evSnap.data() ?? {};
+    await setEditEvent(db, uid, null);
   }
 
   // Free-now: write the user's availability window deterministically (Claude
@@ -1127,7 +1561,7 @@ export async function processMessage(deps: ProcessMessageDeps): Promise<void> {
   // match them against other currently-free members.
   let freeNowMode = false;
   let freeUntilMs: number | undefined;
-  if (!eventMode) {
+  if (!eventMode && !editMode) {
     const free = parseFreeCommand(body);
     if (free.matched) {
       freeNowMode = true;
@@ -1182,13 +1616,48 @@ export async function processMessage(deps: ProcessMessageDeps): Promise<void> {
     history,
     pendingAction: pendingForContext,
     eventMode,
+    editMode,
+    editEvent:
+      editMode && editEventId && editEventData
+        ? {
+            eventId: editEventId,
+            title: String(editEventData.title ?? ""),
+            kind: String(editEventData.kind ?? "other"),
+            startAtISO:
+              editEventData.startAt &&
+              typeof (editEventData.startAt as Timestamp).toDate === "function"
+                ? (editEventData.startAt as Timestamp).toDate().toISOString()
+                : "",
+            addressNeighborhood: String(editEventData.addressNeighborhood ?? ""),
+            addressFull: String(editEventData.addressFull ?? ""),
+            capacity:
+              typeof editEventData.capacity === "number" ? editEventData.capacity : null,
+          }
+        : undefined,
     freeNowMode,
     freeUntilMs,
     lang,
   });
 
-  const rawReply = await runClaude(claudeBody, directoryBlock, eventsBlock, volatileBlock, eventMode);
+  const rawReply = await runClaude(
+    claudeBody,
+    directoryBlock,
+    eventsBlock,
+    volatileBlock,
+    eventMode || editMode
+  );
   let { reply, action } = parseActionMarker(rawReply);
+
+  // The eventId for an edit is authoritative from conversation state, not the
+  // model. Stamp it on; and never let an edit_event marker survive outside an
+  // actual edit turn (defends against a stray marker becoming a no-op pending).
+  if (action?.kind === "edit_event") {
+    if (editMode && editEventId) {
+      action.eventId = editEventId;
+    } else {
+      action = null;
+    }
+  }
 
   // Backstop: a `find me <topic>` browse must never create a pending action. The
   // prompt forbids the marker here, but the local model is unreliable about it,
@@ -1221,7 +1690,11 @@ export async function processMessage(deps: ProcessMessageDeps): Promise<void> {
   let telegramBody: string | undefined;
   if (action) {
     const yesLabel =
-      action.kind === "create_event" ? msg(lang).btn.yesCreate : msg(lang).btn.yesPing;
+      action.kind === "create_event"
+        ? msg(lang).btn.yesCreate
+        : action.kind === "edit_event"
+          ? msg(lang).btn.yesEdit
+          : msg(lang).btn.yesPing;
     buttons = [
       { text: yesLabel, data: "yes" },
       { text: msg(lang).btn.no, data: "no" },

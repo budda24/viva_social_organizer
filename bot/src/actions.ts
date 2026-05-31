@@ -53,7 +53,35 @@ export interface IntroBuddyAction {
   opener: string;
 }
 
-export type PendingAction = CreateEventAction | IntroBuddyAction;
+// Owner-only event mutations. `cancel_event` is staged deterministically by the
+// brain (resolve + ownership check) and confirmed with `yes`; `edit_event` is
+// emitted by Claude in EDIT_EVENT_MODE (the brain injects the authoritative
+// eventId before storing it). Both re-check ownership at execution time.
+export interface CancelEventAction {
+  kind: "cancel_event";
+  eventId: string;
+  title: string;
+}
+
+export interface EditEventChanges {
+  title?: string;
+  startAtISO?: string;
+  addressNeighborhood?: string;
+  addressFull?: string;
+  capacity?: number;
+}
+
+export interface EditEventAction {
+  kind: "edit_event";
+  eventId: string;
+  changes: EditEventChanges;
+}
+
+export type PendingAction =
+  | CreateEventAction
+  | IntroBuddyAction
+  | CancelEventAction
+  | EditEventAction;
 
 // A Telegram inline-keyboard CTA button. `text` is the (localized) label the
 // user sees; `data` is the canonical token routed back through the inbox when
@@ -135,6 +163,35 @@ function validateAction(raw: unknown): PendingAction | null {
       opener: String(o.opener).slice(0, 240),
     };
   }
+  if (o.kind === "edit_event") {
+    // The eventId is authoritative from conversation state, not the model — the
+    // brain overwrites it after parsing. We only validate the `changes` here, and
+    // require at least one recognised change or the marker is dropped.
+    const raw = (o.changes && typeof o.changes === "object" ? o.changes : {}) as Record<
+      string,
+      unknown
+    >;
+    const changes: EditEventChanges = {};
+    if (typeof raw.title === "string" && raw.title.trim()) {
+      changes.title = raw.title.trim().slice(0, 60);
+    }
+    if (typeof raw.startAtISO === "string" && !Number.isNaN(Date.parse(raw.startAtISO))) {
+      changes.startAtISO = raw.startAtISO;
+    }
+    if (typeof raw.addressNeighborhood === "string") {
+      changes.addressNeighborhood = raw.addressNeighborhood;
+    }
+    if (typeof raw.addressFull === "string") changes.addressFull = raw.addressFull;
+    if (typeof raw.capacity === "number" && Number.isFinite(raw.capacity)) {
+      changes.capacity = Math.max(1, Math.floor(raw.capacity));
+    }
+    if (Object.keys(changes).length === 0) return null;
+    return {
+      kind: "edit_event",
+      eventId: typeof o.eventId === "string" ? o.eventId : "",
+      changes,
+    };
+  }
   return null;
 }
 
@@ -143,6 +200,13 @@ export function describePendingAction(a: PendingAction): string {
   if (a.kind === "create_event") {
     const place = a.addressFull ? ` at ${a.addressFull}` : "";
     return `pending: create event "${a.title}" (${a.kind_enum})${place} at ${a.startAtISO} — awaiting yes`;
+  }
+  if (a.kind === "cancel_event") {
+    return `pending: cancel event "${a.title}" — awaiting yes`;
+  }
+  if (a.kind === "edit_event") {
+    const fields = Object.keys(a.changes).join(", ") || "nothing";
+    return `pending: edit event ${a.eventId} (${fields}) — awaiting yes`;
   }
   return `pending: intro to uid ${a.targetUid} — awaiting yes`;
 }
@@ -226,10 +290,11 @@ function formatEventAnnouncement(
   withCta = true
 ): string {
   const when = formatParisTime(args.startAtISO, lang);
+  // The broadcast goes to everyone *before* they RSVP, so it shows the
+  // neighborhood only — the exact address is revealed on RSVP (see handleJoin).
   const place =
-    args.addressFull ??
-    args.addressNeighborhood ??
-    (lang === "fr" ? "(lieu à confirmer)" : "(location TBC)");
+    args.addressNeighborhood ||
+    (lang === "fr" ? "(quartier à préciser)" : "(area TBC)");
   return msg(lang).eventAnnounce(
     {
       emoji: kindEmoji(args.kind),
@@ -374,6 +439,137 @@ async function executeCreateEvent(
   return {
     reply: msg(deps.lang).eventCreated(action.title, pinged, skipped),
   };
+}
+
+// DM everyone who RSVP'd "going" to an event (except `excludeUid`, normally the
+// host), each in their own language. `bodyFor` builds the message per recipient
+// language. Returns how many were reachable + queued. Used by cancel + edit.
+async function notifyAttendees(
+  db: Firestore,
+  eventId: string,
+  excludeUid: string,
+  bodyFor: (lang: Lang) => string,
+  type: string
+): Promise<number> {
+  const rsvps = await db
+    .collection("events")
+    .doc(eventId)
+    .collection("rsvps")
+    .where("status", "==", "going")
+    .get();
+  let notified = 0;
+  await Promise.all(
+    rsvps.docs.map(async (d) => {
+      const attendeeUid = d.id;
+      if (attendeeUid === excludeUid) return;
+      const us = await db.doc(`users/${attendeeUid}`).get();
+      if (!us.exists) return;
+      const ud = us.data() ?? {};
+      const route = pickChannel(ud);
+      if (!route) return;
+      await enqueueOutbox(db, {
+        recipientUid: attendeeUid,
+        route,
+        body: bodyFor(normalizeLang(ud.preferredLanguage)),
+        type,
+        eventId,
+        sourceUid: excludeUid,
+      });
+      notified += 1;
+    })
+  );
+  return notified;
+}
+
+// Owner cancels their event: soft-delete (status="cancelled") + notify everyone
+// who RSVP'd. Re-checks ownership at execution time (the pendingAction may be
+// stale). Idempotent-ish: a second cancel just reports it's already cancelled.
+async function executeCancelEvent(
+  deps: ExecuteDeps,
+  action: CancelEventAction
+): Promise<ExecuteResult> {
+  const { db, uid, lang } = deps;
+  const ref = db.doc(`events/${action.eventId}`);
+  const snap = await ref.get();
+  if (!snap.exists) return { reply: msg(lang).eventGone };
+  const ev = snap.data() ?? {};
+  if (ev.hostUid !== uid) return { reply: msg(lang).notYourEvent };
+  const title = String(ev.title ?? action.title ?? "");
+  if (ev.status === "cancelled") {
+    return { reply: msg(lang).eventAlreadyCancelled(title) };
+  }
+
+  await ref.set(
+    { status: "cancelled", cancelledAt: FieldValue.serverTimestamp() },
+    { merge: true }
+  );
+
+  const hostName = String(ev.hostName ?? "");
+  const notified = await notifyAttendees(
+    db,
+    action.eventId,
+    uid,
+    (rlang) => msg(rlang).eventCancelledNotice(title, hostName),
+    "event_cancelled"
+  );
+  return { reply: msg(lang).eventCancelled(title, notified) };
+}
+
+// Owner edits their event (Claude-parsed change set). Applies only the provided
+// fields, re-checks ownership, then notifies attendees of the new when/where.
+// Attendees already RSVP'd, so the update may include the full address.
+async function executeEditEvent(
+  deps: ExecuteDeps,
+  action: EditEventAction
+): Promise<ExecuteResult> {
+  const { db, uid, lang } = deps;
+  const ref = db.doc(`events/${action.eventId}`);
+  const snap = await ref.get();
+  if (!snap.exists) return { reply: msg(lang).eventGone };
+  const ev = snap.data() ?? {};
+  if (ev.hostUid !== uid) return { reply: msg(lang).notYourEvent };
+  if (ev.status !== "scheduled") return { reply: msg(lang).eventGone };
+
+  const c = action.changes;
+  const patch: Record<string, unknown> = {};
+  if (c.title !== undefined) patch.title = c.title;
+  if (c.startAtISO !== undefined) {
+    patch.startAt = Timestamp.fromDate(new Date(c.startAtISO));
+  }
+  if (c.addressNeighborhood !== undefined) {
+    patch.addressNeighborhood = c.addressNeighborhood;
+  }
+  if (c.addressFull !== undefined) patch.addressFull = c.addressFull;
+  if (c.capacity !== undefined) patch.capacity = c.capacity;
+  if (Object.keys(patch).length === 0) return { reply: msg(lang).editNoChanges };
+  patch.updatedAt = FieldValue.serverTimestamp();
+  await ref.set(patch, { merge: true });
+
+  const newTitle = String(patch.title ?? ev.title ?? "");
+  const startAtField = ev.startAt as Timestamp | undefined;
+  const newWhenISO =
+    c.startAtISO ??
+    (startAtField && typeof startAtField.toDate === "function"
+      ? startAtField.toDate().toISOString()
+      : undefined);
+  const newPlace = String(
+    c.addressFull ?? ev.addressFull ?? c.addressNeighborhood ?? ev.addressNeighborhood ?? ""
+  );
+  const hostName = String(ev.hostName ?? "");
+  const notified = await notifyAttendees(
+    db,
+    action.eventId,
+    uid,
+    (rlang) =>
+      msg(rlang).eventUpdatedNotice({
+        title: newTitle,
+        when: newWhenISO ? formatParisTime(newWhenISO, rlang) : "",
+        place: newPlace,
+        hostName,
+      }),
+    "event_updated"
+  );
+  return { reply: msg(lang).eventUpdated(newTitle, notified) };
 }
 
 // A one-line "who's asking" descriptor auto-pulled from the requester's profile
@@ -621,5 +817,7 @@ export async function executePendingAction(
   action: PendingAction
 ): Promise<ExecuteResult> {
   if (action.kind === "create_event") return executeCreateEvent(deps, action);
+  if (action.kind === "cancel_event") return executeCancelEvent(deps, action);
+  if (action.kind === "edit_event") return executeEditEvent(deps, action);
   return executeIntroBuddy(deps, action);
 }

@@ -22,6 +22,10 @@ export { onTwilioOutboxCreated } from "./channels/twilio/outbox";
 // === Telegram — primary channel ===
 export { telegramWebhook } from "./channels/telegram/webhook";
 export { onTelegramOutboxCreated } from "./channels/telegram/outbox";
+// Per-event forum topic in the "Viva Tribe" supergroup (Topics enabled). Needs
+// TELEGRAM_GROUP_CHAT_ID + (TELEGRAM_GROUP_USERNAME | TELEGRAM_GROUP_INVITE) set;
+// no-ops until then.
+export { onEventWrite } from "./channels/telegram/forum";
 
 // === Whapi.cloud path — disabled until Whapi account + WHAPI_TOKEN / WHAPI_WEBHOOK_SECRET are configured ===
 // export { whapiWebhook } from "./bot/webhook";

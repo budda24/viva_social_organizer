@@ -66,7 +66,7 @@ Recent turns: (none)`;
 interface Case {
   name: string;
   message: string;
-  expectMarker: "create_event" | "intro_buddy" | null;
+  expectMarker: "create_event" | "intro_buddy" | "edit_event" | null;
   volatileExtra?: string;
   // If set, the reply must match this (e.g. a venture pitch, not the menu).
   mustMatch?: RegExp;
@@ -112,6 +112,16 @@ const CASES: Case[] = [
     volatileExtra: "# EVENT_CREATION_MODE (single-turn directive)\nThe message below IS the event description. Emit a create_event marker.",
   },
   {
+    name: "edit change → edit_event marker (EDIT_EVENT_MODE)",
+    message: "move it to 9am",
+    expectMarker: "edit_event",
+    volatileExtra:
+      "# EDIT_EVENT_MODE (single-turn directive)\n" +
+      "The user hosts this event and is describing a change. Apply ONLY what they ask.\n" +
+      "Current event:\n- title: Founders coffee\n- kind: coffee\n- starts (ISO): 2026-06-09T08:00:00+02:00\n- neighborhood: 1er\n- full address: Café Marly\n- capacity: unlimited\n" +
+      'Reply with a one-line preview then an `edit_event` marker {"kind":"edit_event","changes":{...}} carrying only changed fields. Do NOT include an eventId.',
+  },
+  {
     name: "tell me about Online Tribes → pitch, no marker",
     message: "tell me about Online Tribes",
     expectMarker: null,
@@ -146,7 +156,7 @@ async function main(): Promise<void> {
         system: [BASE_SYSTEM_PROMPT, DIRECTORY_BLOCK, c.eventsBlock ?? EVENTS_BLOCK, volatileBlock(c.volatileExtra ?? "")],
         user: c.message,
         maxTokens: 400,
-        expectAction: c.expectMarker === "create_event",
+        expectAction: c.expectMarker === "create_event" || c.expectMarker === "edit_event",
       });
       raw = text;
     } catch (e) {
