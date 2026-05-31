@@ -158,6 +158,13 @@ export interface Bundle {
   eventCancelledNotice: (title: string, hostName: string) => string;
   eventUpdated: (title: string, notified: number) => string;
   eventUpdatedNotice: (a: EventUpdateArgs) => string;
+  // Online Tribes group chat: the host links their OT username once, then each
+  // event auto-gets a tribe they own; the invite link is shared with attendees.
+  tribeReady: (link: string) => string;
+  otUsernamePrompt: string;
+  otUsernameNotFound: string;
+  otUsernameSkipped: string;
+  otUsernameError: string;
   btn: BtnLabels;
   menu: string;
 }
@@ -256,6 +263,16 @@ const EN: Bundle = {
     ]
       .filter(Boolean)
       .join("\n"),
+  tribeReady: (link) => `🎪 Group chat ready — share it with attendees: ${link}`,
+  otUsernamePrompt:
+    "One more thing — what's your Online Tribes username? I'll spin up a group chat for this event that you'll own. " +
+    "No account yet? Grab one at online-tribes.com, then reply your username. (Or reply skip.)",
+  otUsernameNotFound:
+    "Couldn't find that Online Tribes username. Double-check it (or sign up at online-tribes.com) and reply it again — or reply skip to add the group later.",
+  otUsernameSkipped:
+    "No worries — your event's live. You can add an Online Tribes group later.",
+  otUsernameError:
+    "Couldn't set up the group right now — your event's live; we'll sort the group out later.",
   btn: {
     yesPing: "✅ Yes, ping them",
     yesCreate: "✅ Yes, create it",
@@ -377,6 +394,16 @@ const FR: Bundle = {
     ]
       .filter(Boolean)
       .join("\n"),
+  tribeReady: (link) => `🎪 Groupe de discussion prêt — partage-le aux participants : ${link}`,
+  otUsernamePrompt:
+    "Dernière chose — quel est ton nom d'utilisateur Online Tribes ? Je crée un groupe de discussion pour cet événement, dont tu seras propriétaire. " +
+    "Pas encore de compte ? Inscris-toi sur online-tribes.com, puis réponds ton nom d'utilisateur. (Ou réponds skip.)",
+  otUsernameNotFound:
+    "Nom d'utilisateur Online Tribes introuvable. Vérifie-le (ou inscris-toi sur online-tribes.com) et renvoie-le — ou réponds skip pour ajouter le groupe plus tard.",
+  otUsernameSkipped:
+    "Pas de souci — ton événement est en ligne. Tu pourras ajouter un groupe Online Tribes plus tard.",
+  otUsernameError:
+    "Impossible de créer le groupe pour le moment — ton événement est en ligne ; on réglera le groupe plus tard.",
   btn: {
     yesPing: "✅ Oui, préviens-le/la",
     yesCreate: "✅ Oui, créer",

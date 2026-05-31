@@ -34,6 +34,7 @@ import {
   type PendingAction,
   type PendingIntroRequest,
 } from "./actions.js";
+import { createTribeForHost } from "./online-tribes.js";
 import {
   claudeLanguageDirective,
   isNoWord,
@@ -82,12 +83,20 @@ interface EditEventState {
   startedAt: Timestamp;
 }
 
+// Host just created an event and we're waiting for their Online Tribes username
+// to spin up the group tribe (carries the event id to attach the link to).
+interface AwaitingOtUsernameState {
+  eventId: string;
+  startedAt: Timestamp;
+}
+
 interface ConvoState {
   turns?: Turn[];
   pendingAction?: PendingAction;
   pendingActionAt?: Timestamp;
   eventCreation?: EventCreationState;
   editEvent?: EditEventState;
+  awaitingOtUsername?: AwaitingOtUsernameState;
   pendingIntroRequest?: PendingIntroRequest;
   awaitingLanguage?: boolean;
 }
@@ -235,6 +244,29 @@ async function setEditEvent(
   } else {
     await ref.set(
       { uid, editEvent: FieldValue.delete(), updatedAt: FieldValue.serverTimestamp() },
+      { merge: true }
+    );
+  }
+}
+
+async function setAwaitingOtUsername(
+  db: Firestore,
+  uid: string,
+  eventId: string | null
+): Promise<void> {
+  const ref = db.doc(`conversationStates/${uid}`);
+  if (eventId) {
+    await ref.set(
+      {
+        uid,
+        awaitingOtUsername: { eventId, startedAt: Timestamp.now() },
+        updatedAt: FieldValue.serverTimestamp(),
+      },
+      { merge: true }
+    );
+  } else {
+    await ref.set(
+      { uid, awaitingOtUsername: FieldValue.delete(), updatedAt: FieldValue.serverTimestamp() },
       { merge: true }
     );
   }
@@ -903,8 +935,7 @@ async function handleJoin(
   db: Firestore,
   uid: string,
   arg: string,
-  lang: Lang,
-  provider: Provider
+  lang: Lang
 ): Promise<{ reply: string; joined: boolean }> {
   // 1. Exact event id — the Join button sends `join <eventId>`.
   const byId = await db.doc(`events/${arg}`).get();
@@ -942,8 +973,8 @@ async function handleJoin(
     );
 
   // Now that they're in, reveal the exact address (public listings only show the
-  // neighborhood), the start time, and — on Telegram, if a forum topic exists —
-  // a link to coordinate with the other attendees.
+  // neighborhood), the start time, and — if the host set up an Online Tribes group
+  // — its invite link to coordinate with the other attendees (works on any channel).
   const evSnap =
     byId.exists && byId.id === eventId ? byId : await db.doc(`events/${eventId}`).get();
   const ev = (evSnap.data() ?? {}) as Record<string, unknown>;
@@ -953,12 +984,9 @@ async function handleJoin(
     startAt && typeof startAt.toMillis === "function"
       ? formatParisDateTime(startAt.toMillis(), lang)
       : "";
-  const topicLink =
-    provider === "telegram" && typeof ev.telegramTopicLink === "string"
-      ? ev.telegramTopicLink
-      : "";
+  const groupLink = typeof ev.tribeLink === "string" ? ev.tribeLink : "";
   return {
-    reply: msg(lang).rsvpJoined(title || "the event", place, when, topicLink || undefined),
+    reply: msg(lang).rsvpJoined(title || "the event", place, when, groupLink || undefined),
     joined: true,
   };
 }
@@ -1287,17 +1315,24 @@ export async function processMessage(deps: ProcessMessageDeps): Promise<void> {
         pending
       );
       await setPendingAction(db, uid, null);
+      // A freshly-created event needs the host's Online Tribes username to spin
+      // up its group tribe — park the state and append the prompt to the reply.
+      let reply = result.reply;
+      if (result.needsTribeUsername && result.createdEventId) {
+        await setAwaitingOtUsername(db, uid, result.createdEventId);
+        reply = `${reply}\n\n${msg(lang).otUsernamePrompt}`;
+      }
       await writeOutbox(db, {
         provider,
         uid,
         phone,
         chatId,
-        body: result.reply,
+        body: reply,
         type: "action_confirm",
       });
       await appendTurns(db, uid, [
         { role: "user", content: body, at: Timestamp.now() },
-        { role: "assistant", content: result.reply, at: Timestamp.now() },
+        { role: "assistant", content: reply, at: Timestamp.now() },
       ]);
       await inboxDoc.ref.update({ intent: "action_executed" });
       return;
@@ -1324,11 +1359,69 @@ export async function processMessage(deps: ProcessMessageDeps): Promise<void> {
     await setPendingAction(db, uid, null);
   }
 
+  // Online Tribes username follow-up — the host just created an event and we
+  // asked for their OT username to spin up the group tribe (owned by them). The
+  // next message is the username; `skip`/`cancel` bails (event stays, no group).
+  if (convoState.awaitingOtUsername) {
+    const eventId = convoState.awaitingOtUsername.eventId;
+    if (/^(cancel|nvm|skip|abort|annuler|annule|laisse tomber|passe|later|plus tard)$/i.test(body)) {
+      await setAwaitingOtUsername(db, uid, null);
+      const reply = msg(lang).otUsernameSkipped;
+      await writeOutbox(db, { provider, uid, phone, chatId, body: reply, type: "ot_username_skip" });
+      await appendTurns(db, uid, [
+        { role: "user", content: body, at: Timestamp.now() },
+        { role: "assistant", content: reply, at: Timestamp.now() },
+      ]);
+      await inboxDoc.ref.update({ intent: "ot_username_skipped" });
+      return;
+    }
+    const username = body.trim().replace(/^@/, "");
+    const evSnap = await db.doc(`events/${eventId}`).get();
+    let reply: string;
+    let intent: string;
+    if (!evSnap.exists || evSnap.data()?.status !== "scheduled") {
+      // Event vanished (cancelled/expired) before they answered — drop the prompt.
+      await setAwaitingOtUsername(db, uid, null);
+      reply = msg(lang).otUsernameSkipped;
+      intent = "ot_username_eventgone";
+    } else {
+      const ev = evSnap.data() ?? {};
+      const tribe = await createTribeForHost({
+        ownerUsername: username,
+        name: String(ev.title ?? "the event"),
+        bio: (ev.description as string) || undefined,
+      });
+      if (tribe.ok) {
+        await db.doc(`users/${uid}`).set({ onlineTribesUsername: username }, { merge: true });
+        await db.doc(`events/${eventId}`).set({ tribeLink: tribe.inviteLink }, { merge: true });
+        await setAwaitingOtUsername(db, uid, null);
+        reply = msg(lang).tribeReady(tribe.inviteLink);
+        intent = "ot_username_set";
+      } else if (tribe.reason === "username_not_found") {
+        // Keep the state so their next message retries.
+        reply = msg(lang).otUsernameNotFound;
+        intent = "ot_username_notfound";
+      } else {
+        // not_configured / transient error — don't loop the host.
+        await setAwaitingOtUsername(db, uid, null);
+        reply = msg(lang).otUsernameError;
+        intent = "ot_username_error";
+      }
+    }
+    await writeOutbox(db, { provider, uid, phone, chatId, body: reply, type: "ot_username" });
+    await appendTurns(db, uid, [
+      { role: "user", content: body, at: Timestamp.now() },
+      { role: "assistant", content: reply, at: Timestamp.now() },
+    ]);
+    await inboxDoc.ref.update({ intent });
+    return;
+  }
+
   // RSVP — `join <event>` (typed by name) or the Join button's `join <eventId>`
   // token. Deterministic write of events/{id}/rsvps/{uid}; no Claude call.
   const joinMatch = body.match(JOIN_CMD_RE);
   if (joinMatch) {
-    const result = await handleJoin(db, uid, joinMatch[1].trim(), lang, provider);
+    const result = await handleJoin(db, uid, joinMatch[1].trim(), lang);
     await writeOutbox(db, { provider, uid, phone, chatId, body: result.reply, type: "rsvp" });
     await appendTurns(db, uid, [
       { role: "user", content: body, at: Timestamp.now() },

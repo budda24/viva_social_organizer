@@ -22,6 +22,7 @@
 import type { Firestore } from "firebase-admin/firestore";
 import { FieldValue, Timestamp } from "firebase-admin/firestore";
 import { msg, normalizeLang, type Lang } from "./i18n.js";
+import { createTribeForHost, isOnlineTribesConfigured } from "./online-tribes.js";
 
 const KIND_ENUM = [
   "breakfast",
@@ -356,6 +357,10 @@ interface ExecuteDeps {
 
 interface ExecuteResult {
   reply: string;
+  // create_event only: the new event id, and whether we still need the host's
+  // Online Tribes username to spin up the group tribe (the brain then prompts).
+  createdEventId?: string;
+  needsTribeUsername?: boolean;
 }
 
 async function executeCreateEvent(
@@ -436,8 +441,36 @@ async function executeCreateEvent(
     })
   );
 
+  // Group chat: create an Online Tribes "tribe" owned by the host. If we already
+  // have their OT username (from a prior event), do it now and attach the link;
+  // otherwise flag the brain to prompt for it. No-op if the integration is unset.
+  let tribeLine = "";
+  let needsTribeUsername = false;
+  const otUsername =
+    typeof userData.onlineTribesUsername === "string"
+      ? userData.onlineTribesUsername.trim()
+      : "";
+  if (otUsername) {
+    const tribe = await createTribeForHost({
+      ownerUsername: otUsername,
+      name: action.title,
+      bio: action.description || undefined,
+    });
+    if (tribe.ok) {
+      await eventRef.set({ tribeLink: tribe.inviteLink }, { merge: true });
+      tribeLine = "\n" + msg(deps.lang).tribeReady(tribe.inviteLink);
+    } else if (tribe.reason === "username_not_found") {
+      needsTribeUsername = true; // stored username no longer resolves — re-ask
+    }
+    // not_configured / transient error → skip the group this time, no prompt
+  } else if (isOnlineTribesConfigured()) {
+    needsTribeUsername = true;
+  }
+
   return {
-    reply: msg(deps.lang).eventCreated(action.title, pinged, skipped),
+    reply: msg(deps.lang).eventCreated(action.title, pinged, skipped) + tribeLine,
+    createdEventId: eventRef.id,
+    needsTribeUsername,
   };
 }
 
