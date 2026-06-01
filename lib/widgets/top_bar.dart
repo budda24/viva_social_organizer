@@ -75,6 +75,12 @@ class TopBar extends StatelessWidget {
                   route: '/members',
                   active: currentRoute == '/members',
                 ),
+                const SizedBox(width: 18),
+                _NavLink(
+                  label: 'Pitches',
+                  route: '/pitches',
+                  active: currentRoute == '/pitches',
+                ),
               ],
               const Spacer(),
               ?trailing,

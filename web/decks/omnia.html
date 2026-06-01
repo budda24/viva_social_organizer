@@ -1,0 +1,648 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Online Tribes — Pitch Deck v6</title>
+    <style>
+      @import url("https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap");
+
+      :root {
+        --primary: #7c3aed;
+        --primary-light: #a78bfa;
+        --primary-dark: #5b21b6;
+        --primary-bg: #f5f0ff;
+        --text-dark: #111827;
+        --text: #374151;
+        --text-muted: #6b7280;
+        --bg: #ffffff;
+        --bg-subtle: #fafafa;
+        --border: rgba(124, 58, 237, 0.12);
+        --border-strong: rgba(124, 58, 237, 0.2);
+        --shadow-sm: 0 1px 3px rgba(124, 58, 237, 0.08);
+        --shadow-md: 0 4px 12px rgba(124, 58, 237, 0.12);
+        --radius-sm: 8px;
+        --radius-md: 12px;
+        --radius-lg: 16px;
+        --red: #dc2626;
+        --green: #16a34a;
+        --amber: #d97706;
+      }
+
+      @page { size: A4; margin: 14mm 16mm; }
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+
+      body {
+        font-family: "Inter", -apple-system, BlinkMacSystemFont, sans-serif;
+        background: var(--bg);
+        color: var(--text);
+        line-height: 1.6;
+        font-size: 15px;
+        -webkit-print-color-adjust: exact;
+        print-color-adjust: exact;
+        -webkit-font-smoothing: antialiased;
+      }
+
+      .container { max-width: 860px; margin: 0 auto; padding: 40px 36px; }
+
+      .slide { page-break-after: always; break-after: page; padding: 40px 0; }
+      .slide:last-child { page-break-after: avoid; break-after: avoid; }
+
+      .slide-label {
+        font-size: 11px;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 2.5px;
+        color: var(--primary);
+        margin-bottom: 16px;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+      .slide-label::after { content: ""; flex: 1; height: 2px; background: var(--border-strong); }
+
+      .slide-title, h2 {
+        font-size: 30px;
+        font-weight: 800;
+        color: var(--text-dark);
+        line-height: 1.25;
+        letter-spacing: -0.025em;
+        margin-bottom: 28px;
+      }
+
+      h3 { font-size: 18px; font-weight: 700; color: var(--text-dark); margin: 20px 0 12px; }
+
+      p { margin-bottom: 16px; font-size: 16px; line-height: 1.65; color: var(--text); }
+
+      .lead { font-size: 19px; color: var(--text-dark); line-height: 1.55; font-weight: 500; margin-bottom: 24px; }
+
+      .source { font-size: 12px; color: var(--text-muted); font-style: italic; margin-top: 8px; }
+
+      /* Cover */
+      .cover { text-align: center; padding-top: 80px; }
+      .cover .logo { width: 80px; height: 80px; border-radius: var(--radius-md); object-fit: contain; margin-bottom: 20px; }
+      .cover h1 { font-size: 44px; font-weight: 900; color: var(--text-dark); letter-spacing: -0.03em; margin-bottom: 8px; }
+      .cover .tagline { font-size: 20px; color: var(--primary); font-weight: 600; margin-bottom: 12px; }
+      .cover .sub { font-size: 15px; color: var(--text-muted); margin-bottom: 32px; }
+      .cover .badge {
+        display: inline-block;
+        background: var(--primary);
+        color: white;
+        padding: 12px 28px;
+        border-radius: 8px;
+        font-size: 15px;
+        font-weight: 700;
+        letter-spacing: 0.02em;
+      }
+
+      /* Highlight */
+      .highlight-box {
+        background: var(--primary-bg);
+        border-left: 4px solid var(--primary);
+        border-radius: var(--radius-sm);
+        padding: 18px 22px;
+        margin: 20px 0;
+        page-break-inside: avoid;
+      }
+      .highlight-box p { margin: 0; color: var(--text-dark); font-size: 15px; font-weight: 500; line-height: 1.6; }
+
+      .honest-box {
+        background: #fff7ed;
+        border-left: 4px solid var(--amber);
+        border-radius: var(--radius-sm);
+        padding: 18px 22px;
+        margin: 20px 0;
+        page-break-inside: avoid;
+      }
+      .honest-box p { margin: 0; color: var(--text-dark); font-size: 15px; font-weight: 500; line-height: 1.6; }
+      .honest-box .label { font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: 1.5px; color: var(--amber); margin-bottom: 6px; }
+
+      /* Stats */
+      .stats-row { display: flex; gap: 16px; margin: 24px 0; flex-wrap: wrap; }
+      .stat-card {
+        background: white;
+        border: 1px solid var(--border-strong);
+        border-radius: var(--radius-md);
+        padding: 20px 24px;
+        text-align: center;
+        flex: 1;
+        min-width: 110px;
+        page-break-inside: avoid;
+      }
+      .stat-number { font-size: 36px; font-weight: 900; color: var(--primary); line-height: 1; letter-spacing: -0.02em; margin-bottom: 6px; }
+      .stat-label { font-size: 12px; color: var(--text-muted); font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; }
+      .stat-sub { font-size: 11px; color: var(--text-muted); margin-top: 4px; }
+
+      /* Lists */
+      ul, ol { margin: 12px 0; padding-left: 22px; }
+      li { margin: 8px 0; font-size: 15px; line-height: 1.55; color: var(--text); }
+      li::marker { color: var(--primary); font-weight: 700; }
+      strong { color: var(--text-dark); font-weight: 700; }
+
+      /* Table */
+      table {
+        width: 100%;
+        border-collapse: separate;
+        border-spacing: 0;
+        margin: 20px 0;
+        font-size: 14px;
+        border-radius: var(--radius-md);
+        overflow: hidden;
+        border: 1px solid var(--border-strong);
+      }
+      th, td { padding: 12px 16px; text-align: left; border-bottom: 1px solid var(--border); }
+      th { background: var(--bg-subtle); font-weight: 700; color: var(--text-dark); font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px; }
+      tr:last-child td { border-bottom: none; }
+      td.num { text-align: right; font-variant-numeric: tabular-nums; font-weight: 600; color: var(--text-dark); }
+      .row-highlight { background: var(--primary-bg); }
+      .row-highlight td { color: var(--text-dark); font-weight: 700; }
+      .row-bad td { color: var(--red); font-weight: 700; }
+
+      /* Cards */
+      .card {
+        background: white;
+        border: 1px solid var(--border-strong);
+        border-radius: var(--radius-md);
+        padding: 18px 20px;
+        margin: 10px 0;
+        page-break-inside: avoid;
+      }
+      .card h4 { font-size: 14px; font-weight: 700; color: var(--primary); margin: 0 0 8px; }
+      .card p { margin-bottom: 6px; font-size: 14px; }
+      .card ul { margin: 4px 0 0; }
+      .card li { font-size: 14px; margin: 4px 0; }
+
+      .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin: 16px 0; }
+      .three-col { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; margin: 16px 0; }
+
+      /* Team */
+      .team-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin: 20px 0; }
+      .team-card {
+        background: white;
+        border: 1px solid var(--border-strong);
+        border-radius: var(--radius-md);
+        padding: 16px 18px;
+        page-break-inside: avoid;
+      }
+      .team-card .name { font-size: 15px; font-weight: 700; color: var(--text-dark); margin-bottom: 2px; }
+      .team-card .role { font-size: 12px; font-weight: 600; color: var(--primary); margin-bottom: 6px; }
+      .team-card .bio { font-size: 13px; color: var(--text-muted); line-height: 1.45; margin: 0; }
+
+      /* CTA */
+      .back-cover { text-align: center; padding-top: 60px; }
+      .back-cover h2 { color: var(--primary); font-size: 32px; margin-bottom: 12px; }
+      .back-cover .subtitle { font-size: 18px; color: var(--text); margin-bottom: 32px; }
+
+      .qr-container { display: flex; align-items: center; justify-content: center; gap: 40px; margin: 28px 0; flex-wrap: wrap; }
+      .qr-code { width: 120px; height: 120px; background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 8px; }
+      .qr-code img { width: 100%; height: 100%; object-fit: contain; }
+      .contact-info { text-align: left; }
+      .contact-info p { margin: 10px 0; font-size: 16px; }
+      .contact-email { font-size: 20px; font-weight: 700; color: var(--primary); margin: 16px 0; }
+
+      /* Use of funds bar */
+      .funds-bar { display: flex; border-radius: var(--radius-md); overflow: hidden; margin: 20px 0 24px; height: 40px; font-size: 12px; font-weight: 700; color: white; }
+      .funds-bar > div { display: flex; align-items: center; justify-content: center; padding: 0 8px; white-space: nowrap; }
+
+      @media (max-width: 640px) {
+        .two-col, .three-col, .team-grid { grid-template-columns: 1fr; }
+        .stats-row { flex-direction: column; }
+        .cover h1 { font-size: 32px; }
+        .slide-title, h2 { font-size: 24px; }
+      }
+
+      @media print {
+        body { font-size: 13px; }
+        .container { padding: 0; max-width: none; }
+        .slide { padding: 10px 0; }
+        .cover { padding-top: 40px; }
+        .back-cover { padding-top: 30px; }
+        .cover h1 { font-size: 32px; }
+        .slide-title, h2 { font-size: 22px; margin-bottom: 16px; }
+        .stat-number { font-size: 26px; }
+        .stat-card { padding: 14px 16px; }
+        .stats-row { margin: 16px 0; gap: 10px; }
+        p { font-size: 13px; margin-bottom: 10px; }
+        li { font-size: 12px; }
+        .highlight-box, .honest-box { padding: 14px 18px; }
+        .highlight-box p, .honest-box p { font-size: 13px; }
+        .card { padding: 14px 16px; }
+        .card h4 { font-size: 12px; }
+        .card p, .card li { font-size: 12px; }
+        .team-card .name { font-size: 13px; }
+        .team-card .role { font-size: 11px; }
+        .team-card .bio { font-size: 11px; }
+        table { font-size: 11px; }
+        th, td { padding: 8px 10px; }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <!-- SLIDE 1 — COVER -->
+      <div class="slide cover">
+        <img class="logo" src="Logo vector.svg" alt="Online Tribes Logo" />
+        <h1>Online Tribes</h1>
+        <div class="tagline">A fully-instrumented social platform for belonging.</div>
+        <div class="sub">Live on iOS &amp; Android · two founders · 18 months · built on $0 outside capital</div>
+        <div class="badge">Pre-Seed Round — May 2026</div>
+      </div>
+
+      <!-- SLIDE 2 — PROBLEM -->
+      <div class="slide">
+        <div class="slide-label">The Problem</div>
+        <h2>Belonging is the one human need the social stack stopped serving.</h2>
+
+        <p class="lead">
+          61% of adults under 25 report serious loneliness, and the U.S. Surgeon General declared it a public-health emergency in 2023. Yet the products built to "connect" us optimize for attention or for matching — never for a small group that knows your name and expects you back next week.
+        </p>
+
+        <div class="two-col">
+          <div class="card">
+            <h4>What today's social stack delivers</h4>
+            <ul>
+              <li><strong>Reddit / X:</strong> content + outrage</li>
+              <li><strong>Discord:</strong> chat for gamers + work</li>
+              <li><strong>Tinder / Bumble:</strong> a match, then churn</li>
+              <li><strong>Meetup:</strong> dormant IRL stack</li>
+            </ul>
+          </div>
+          <div class="card">
+            <h4>What it doesn't deliver</h4>
+            <p>A persistent small group of 8–40 people who share a specific interest, recognise each other, and show up again. The thing every human had before the internet.</p>
+          </div>
+        </div>
+
+        <p class="source">Source: Cigna Loneliness Index 2024; U.S. Surgeon General Advisory, 2023.</p>
+      </div>
+
+      <!-- SLIDE 3 — SOLUTION -->
+      <div class="slide">
+        <div class="slide-label">The Solution</div>
+        <h2>The tribe is the unit. Not the feed.</h2>
+
+        <p class="lead">
+          Online Tribes lets anyone create or join a small interest-based tribe (8–40 people) and gives the tribe the tools to stay alive: shared posts, group chat, AI-assisted onboarding, and a paid leadership path for the owners who hold a community together.
+        </p>
+
+        <div class="three-col">
+          <div class="card">
+            <h4>Small by design</h4>
+            <p>Tribes cap and split as they grow. Belonging breaks above ~40 members; we honour that.</p>
+          </div>
+          <div class="card">
+            <h4>Leader-led, not feed-led</h4>
+            <p>Owners set rules, run rituals, and earn from engagement. Incentive aligned with retention, not impressions.</p>
+          </div>
+          <div class="card">
+            <h4>AI as introducer</h4>
+            <p>AI matches users to tribes by emotional context, not keywords. Not an AI friend — an AI that finds you a real one.</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- SLIDE 4 — WHAT WE BUILT -->
+      <div class="slide">
+        <div class="slide-label">What We Built</div>
+        <h2>An 18-month, two-founder product — and the instrumentation to know exactly what it does.</h2>
+
+        <p class="lead">
+          Most pre-seed social apps ship a feed and guess. We shipped a feed, a tribe primitive, an AI introducer, a paywall, and the analytics spine to see which screen kills which cohort. The instrumentation is the asset: it's how we'll find product–market fit fast once we point acquisition at the right user.
+        </p>
+
+        <div class="two-col">
+          <div class="card">
+            <h4>Shipped to production</h4>
+            <ul>
+              <li>Tribe creation, discovery, and join flow</li>
+              <li>In-tribe feed (posts, comments, reactions)</li>
+              <li>1:1 and group chat</li>
+              <li>Welcome tribes (onboarding cohorts)</li>
+              <li>AI introducer (matching)</li>
+              <li>Premium paywall + Stripe (live in code)</li>
+              <li>Push, deep linking, referrals</li>
+            </ul>
+          </div>
+          <div class="card">
+            <h4>The instrumentation engine</h4>
+            <ul>
+              <li>193 analytics events across the whole app</li>
+              <li>84+ pre-built BigQuery queries (funnel, cohorts, per-feature)</li>
+              <li>Weekly loop: pull data → find the leak → ship the fix</li>
+              <li>iOS &amp; Android from one Flutter codebase</li>
+            </ul>
+          </div>
+        </div>
+        <p class="source">Note: iOS is live but still nascent — to date the install base is ~99% Android (see next slide).</p>
+      </div>
+
+      <!-- SLIDE 5 — HONEST TRACTION -->
+      <div class="slide">
+        <div class="slide-label">Traction — Read It Straight</div>
+        <h2>What's real: organic demand and a machine that ships. What isn't yet: our ICP.</h2>
+
+        <div class="stats-row">
+          <div class="stat-card">
+            <div class="stat-number">~1,500</div>
+            <div class="stat-label">Organic new users / mo</div>
+            <div class="stat-sub">Apr–May 2026 · ~$0 spend</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-number">23.75%</div>
+            <div class="stat-label">Best organic cohort · W1</div>
+            <div class="stat-sub">wk 2026-04-26 · n=619</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-number">~9%</div>
+            <div class="stat-label">Median W1 retention</div>
+            <div class="stat-sub">12-cohort median</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-number">~55K</div>
+            <div class="stat-label">Installs to date</div>
+            <div class="stat-sub">since Nov 2025</div>
+          </div>
+        </div>
+
+        <p>
+          After a small Google paid-install test in March (which we switched off), acquisition is now almost entirely organic and direct — roughly 1,500 new users a month at near-zero CAC. That's genuine pull: people keep arriving, and the best organic weekly cohort came back at <strong>23.75% W1</strong>. Belonging retains when the room is right.
+        </p>
+
+        <div class="honest-box">
+          <div class="label">What we won't pretend</div>
+          <p>Most of those users are not our ICP. The base is ~99% Android, and the US — our target market — is ~3% of installs and our <strong>weakest-retaining segment</strong>. The headline isn't "we have traction." It's "we have a working product, real organic pull, and the instrumentation to prove our ICP. We have not proven it yet." Every figure here is queryable in our BigQuery; ask and we'll run it live.</p>
+        </div>
+        <p class="source">Source: GA4 BigQuery export, project online-tribes-pl-4b26b, windows ending 2026-05-30.</p>
+      </div>
+
+      <!-- SLIDE 6 — THE HARD TRUTH -->
+      <div class="slide">
+        <div class="slide-label">The Hard Truth</div>
+        <h2>Our ICP is our weakest segment — and we know exactly why.</h2>
+
+        <table>
+          <thead>
+            <tr><th>Segment (90d)</th><th style="text-align:right">Users</th><th style="text-align:right">W1 retention</th><th style="text-align:right">Avg active days</th></tr>
+          </thead>
+          <tbody>
+            <tr class="row-bad"><td>United States (our ICP)</td><td class="num">579</td><td class="num">3.85%</td><td class="num">1.25</td></tr>
+            <tr><td>Other Western</td><td class="num">315</td><td class="num">6.35%</td><td class="num">—</td></tr>
+            <tr class="row-highlight"><td>Rest of world (where volume landed)</td><td class="num">11,872</td><td class="num">9.47%</td><td class="num">2.1</td></tr>
+          </tbody>
+        </table>
+
+        <p>
+          Broad, cheap install buying (and organic spillover) brought us volume from markets we don't serve — and our ICP arrives into tribes with almost no one like them in the room. <strong>Belonging needs density. We never built ICP density, so US users find no one to belong to and churn on day one.</strong> That's a cold-start problem, not proof the ICP doesn't want this.
+        </p>
+
+        <h3>Two instrumentation gaps we're fixing first (both P0)</h3>
+        <div class="two-col">
+          <div class="card">
+            <h4>Tribe-join is half-dark</h4>
+            <p>141 users viewed a tribe in 30d, but <code>tribe_join_completed</code> fired for only 6 — the event is under-instrumented across join paths. We can't yet see our most important action clearly.</p>
+          </div>
+          <div class="card">
+            <h4>AI introducer opens, then silence</h4>
+            <p>165 users opened the AI introducer in 30d; 0 downstream messages are recorded. Either users bounce or the event isn't wired. We will know within two weeks.</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- SLIDE 7 — WHY WE STILL BELIEVE -->
+      <div class="slide">
+        <div class="slide-label">Why We Still Believe</div>
+        <h2>When the room is right, belonging retains. We've seen it.</h2>
+
+        <div class="two-col">
+          <div class="card">
+            <h4>Demand is real</h4>
+            <p>~1,500 people a month install with no marketing engine running. The loneliness pull is not hypothetical — it shows up in our funnel every week, for free.</p>
+          </div>
+          <div class="card">
+            <h4>Retention is achievable</h4>
+            <p>Our best organic cohort returned at 23.75% W1 — competitive with strong consumer social — proving the product can hold people when density forms.</p>
+          </div>
+        </div>
+
+        <div class="highlight-box">
+          <p>The gap between our 3.85% ICP retention and our 23.75% best cohort is not a wall — it's the exact distance this raise closes: <strong>concentrate one dense ICP community, fix activation, and measure whether US retention moves.</strong></p>
+        </div>
+      </div>
+
+      <!-- SLIDE 8 — MARKET -->
+      <div class="slide">
+        <div class="slide-label">Market</div>
+        <h2>Belonging is the only social vertical where retention compounds with depth.</h2>
+
+        <div class="three-col">
+          <div class="card" style="text-align:center">
+            <h4>Attention (Meta, X, TikTok)</h4>
+            <p>$700B+ market. Feed-driven; depth degrades engagement. Saturated.</p>
+          </div>
+          <div class="card" style="text-align:center">
+            <h4>Matching (Tinder, Bumble)</h4>
+            <p>$8B+ market. Retention collapses post-match by design. Margins under pressure.</p>
+          </div>
+          <div class="card" style="text-align:center">
+            <h4>Belonging (open)</h4>
+            <p>The only social primitive where deeper relationships compound usage. No category leader.</p>
+          </div>
+        </div>
+
+        <h3 style="margin-top:24px">Comparables — proof the category is fundable</h3>
+        <ul>
+          <li><strong>Discord</strong> — $15B valuation; group-chat for synchronous use (gaming, work).</li>
+          <li><strong>Geneva</strong> — raised $26M; group-chat without the tribe-leader incentive layer.</li>
+          <li><strong>Mighty Networks</strong> — $100M+ raised; creator-led communities, not interest-based small groups.</li>
+          <li><strong>Skool</strong> — profitable; courses-led community, not horizontal belonging.</li>
+        </ul>
+        <div class="highlight-box">
+          <p>None build the small-group, horizontal belonging primitive for individuals. <strong>That's the opening — if someone can crack ICP density.</strong></p>
+        </div>
+      </div>
+
+      <!-- SLIDE 9 — THE BET -->
+      <div class="slide">
+        <div class="slide-label">The Bet</div>
+        <h2>$1.5M to prove one thing: that our ICP retains when we build density for it.</h2>
+
+        <p class="lead">
+          This is a retention-proof raise, not a growth-at-all-costs raise. We stop buying cheap global volume and instead manufacture one dense, ICP-specific community — then let our instrumentation tell us, honestly, whether US retention moves off 3.85%.
+        </p>
+
+        <h3>30 / 60 / 90</h3>
+        <div class="three-col">
+          <div class="card">
+            <h4>Days 0–30</h4>
+            <ul>
+              <li>Fix join + AI + activation instrumentation (P0)</li>
+              <li>Pick one ICP wedge (interest × US metro / campus)</li>
+              <li>Seed it to real density by hand</li>
+            </ul>
+          </div>
+          <div class="card">
+            <h4>Days 31–60</h4>
+            <ul>
+              <li>Targeted ICP acquisition into the seeded wedge</li>
+              <li>Tribe-owner incentive ramp for that wedge</li>
+              <li>Watch ICP W1 / W4 curves, not vanity installs</li>
+            </ul>
+          </div>
+          <div class="card">
+            <h4>Days 61–90</h4>
+            <ul>
+              <li>Iterate activation against the cohort curve</li>
+              <li>Decide: does ICP retention clear the bar?</li>
+              <li>If yes → repeatable wedge playbook for Seed</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+
+      <!-- SLIDE 10 — BUSINESS MODEL -->
+      <div class="slide">
+        <div class="slide-label">Business Model</div>
+        <h2>Monetization is a hypothesis, not a result — and we'll say so.</h2>
+
+        <p class="lead">
+          The rails are built and live in code: a consumer Premium subscription and a tribe-owner take-rate. To date that's produced just <strong>3 purchases</strong>. We are not pitching revenue. We are pitching retention — revenue is the next question, not this one.
+        </p>
+
+        <div class="two-col">
+          <div class="card">
+            <h4>B2C — Premium (live in code)</h4>
+            <ul>
+              <li>Unlimited joins, ad-free, premium matching</li>
+              <li>Pricing TBD post-ICP (Western pricing power, not global)</li>
+              <li>Conversion instrumentation being wired this sprint</li>
+            </ul>
+          </div>
+          <div class="card">
+            <h4>Tribe-owner economics (next)</h4>
+            <ul>
+              <li>Owners earn from engaged members; platform fee 15–20%</li>
+              <li>Turns best users into aligned, paid distribution</li>
+              <li>Activates only once ICP retention is real</li>
+            </ul>
+          </div>
+        </div>
+        <div class="honest-box">
+          <div class="label">Why we lead with retention, not revenue</div>
+          <p>For belonging, retention precedes monetization: a community you don't leave is one you'll eventually pay for. Selling subscriptions into 3.85% retention would just buy churn. Fix the room first.</p>
+        </div>
+      </div>
+
+      <!-- SLIDE 11 — TEAM -->
+      <div class="slide">
+        <div class="slide-label">Team</div>
+        <h2>Two founders, 18 months, a shipped and instrumented product — on $0 outside capital.</h2>
+
+        <div class="team-grid">
+          <div class="team-card">
+            <div class="name">Franek Jablonski</div>
+            <div class="role">Co-founder · CTO</div>
+            <p class="bio">10+ years engineering. Built systems at Visa, led government delivery (Scotland, One Willow). Owns the product + analytics stack.</p>
+          </div>
+          <div class="team-card">
+            <div class="name">Marianna Jablonska</div>
+            <div class="role">Co-founder · Growth &amp; UX</div>
+            <p class="bio">CS + digital marketing. 8+ years bridging product, design, and acquisition. Owns onboarding + retention loops.</p>
+          </div>
+          <div class="team-card">
+            <div class="name">Dominik Mazurkiewicz</div>
+            <div class="role">Senior Mobile Engineer (contract)</div>
+            <p class="bio">Flutter and cross-platform mobile. Core app development.</p>
+          </div>
+          <div class="team-card">
+            <div class="name">Anis Boulaid</div>
+            <div class="role">DevOps Lead (contract)</div>
+            <p class="bio">18+ years cloud and CI/CD. Keeps Firebase + infra honest.</p>
+          </div>
+        </div>
+
+        <div class="highlight-box">
+          <p><strong>Post-raise hires:</strong> AI/ML Engineer (matching), full-time Senior Flutter, Community Lead to hand-seed the first ICP wedge. From 2 founders + contractors to a focused full-time core.</p>
+        </div>
+      </div>
+
+      <!-- SLIDE 12 — THE ASK -->
+      <div class="slide">
+        <div class="slide-label">The Ask</div>
+        <h2>Raising $1.5M pre-seed. 18 months. One measurable outcome.</h2>
+
+        <p class="lead">
+          We're not asking you to believe the traction numbers — we're asking you to back a built product, a proven build-and-measure loop, and a clear experiment to convert real organic pull into real ICP retention.
+        </p>
+
+        <div style="margin: 20px 0">
+          <div class="funds-bar">
+            <div style="width: 35%; background: var(--primary)">35% Engineering</div>
+            <div style="width: 30%; background: var(--primary-light)">30% ICP Density &amp; Growth</div>
+            <div style="width: 20%; background: #8b5cf6">20% Founders</div>
+            <div style="width: 15%; background: var(--primary-dark)">15% Infra &amp; Legal</div>
+          </div>
+        </div>
+
+        <div class="two-col">
+          <div class="card">
+            <h4>Engineering (35% · $525K)</h4>
+            <ul>
+              <li>Fix join / AI / activation instrumentation</li>
+              <li>AI/ML engineer for the introducer</li>
+              <li>Senior Flutter, full-time</li>
+            </ul>
+          </div>
+          <div class="card">
+            <h4>ICP Density &amp; Growth (30% · $450K)</h4>
+            <ul>
+              <li>Hand-seed one dense ICP wedge</li>
+              <li>Targeted ICP acquisition (not broad UAC)</li>
+              <li>Community Lead + tribe-owner incentives</li>
+            </ul>
+          </div>
+          <div class="card">
+            <h4>Founders (20% · $300K)</h4>
+            <ul>
+              <li>2 founders at survival salary, 18 months</li>
+            </ul>
+          </div>
+          <div class="card">
+            <h4>Infra &amp; Legal (15% · $225K)</h4>
+            <ul>
+              <li>Firebase + AI inference</li>
+              <li>Stripe Connect, GDPR, safety/moderation</li>
+            </ul>
+          </div>
+        </div>
+
+        <div class="highlight-box">
+          <p><strong>The one milestone we'll be judged on at month 18:</strong> a dense ICP community with a flattening retention curve — US W1 moved from 3.85% toward our 23.75% best-case, with a repeatable wedge playbook. Retention proof, not user counts.</p>
+        </div>
+      </div>
+
+      <!-- SLIDE 13 — CLOSE -->
+      <div class="slide back-cover">
+        <h2>We built the machine and the instruments. Fund us to point them at the right market.</h2>
+        <p class="subtitle">
+          $1.5M pre-seed. 18 months. From organic pull to proven ICP retention, in a category no one else is building.
+        </p>
+
+        <div class="qr-container">
+          <div class="qr-code">
+            <img src="QR_code.png" alt="QR Code — Download Online Tribes" />
+          </div>
+          <div class="contact-info">
+            <p><strong>Download:</strong> iOS &amp; Android</p>
+            <p><strong>Web:</strong> online-tribes.com</p>
+          </div>
+        </div>
+
+        <div class="contact-email">franek@online-tribes.com</div>
+        <p style="color: var(--text-muted); font-size: 14px; margin: 4px 0">marianna@online-tribes.com</p>
+        <p style="color: var(--text-muted); font-size: 13px; margin-top: 24px">
+          <strong>Online Tribes</strong> — A self-improving social platform for belonging.
+        </p>
+      </div>
+    </div>
+  </body>
+</html>

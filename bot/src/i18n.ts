@@ -54,14 +54,17 @@ export function parseLangReply(text: string): Lang | null {
 }
 
 // Multilingual yes / no — confirmations must work for French users too.
+// Uses `\b` (not `$`) so the user echoing the button label still counts:
+// "yes create it", "yes please", "ok do it" all match. A word-boundary anchor
+// is required so "yesterday" / "noting" / "going" don't false-match.
 export function isYesWord(text: string): boolean {
-  return /^(yes|y|yep|yeah|ok|okay|confirm|do it|go|sure|oui|ouais|ouaip|d'accord|daccord|vas-y|ouip)$/i.test(
+  return /^(yes|y|yep|yeah|ok|okay|confirm|do it|go|sure|oui|ouais|ouaip|d'accord|daccord|vas-y|ouip)\b/i.test(
     text.trim()
   );
 }
 
 export function isNoWord(text: string): boolean {
-  return /^(no|n|nope|cancel|stop that|abort|nah|non|annule|annuler|laisse tomber|nan|passe)$/i.test(
+  return /^(no|n|nope|cancel|stop that|abort|nah|non|annule|annuler|laisse tomber|nan|passe)\b/i.test(
     text.trim()
   );
 }

@@ -7,6 +7,7 @@ import 'screens/invite_screen.dart';
 import 'screens/landing_screen.dart';
 import 'screens/linkedin_callback_screen.dart';
 import 'screens/members_screen.dart';
+import 'screens/pitches_screen.dart';
 import 'screens/welcome_screen.dart';
 import 'theme/app_theme.dart';
 
@@ -56,6 +57,8 @@ class VivaTribeApp extends StatelessWidget {
             );
           case '/members':
             return _fadeThrough(settings, (_) => const MembersScreen());
+          case '/pitches':
+            return _fadeThrough(settings, (_) => const PitchesScreen());
           default:
             // Unknown path — show landing instead of a Flutter error screen.
             return _fadeThrough(settings, (_) => const LandingScreen());
