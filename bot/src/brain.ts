@@ -344,6 +344,10 @@ interface DirectoryMember {
 async function loadMemberDirectory(db: Firestore): Promise<DirectoryMember[]> {
   const snap = await db.collection("users").where("status", "==", "approved").get();
   return snap.docs
+    // Drop load-test artifacts (`lt-…` users tagged isLoadTest) — they're pure
+    // throughput fixtures and must never surface as real match suggestions
+    // (e.g. "LoadTest 10" being offered for "find me a climate VC").
+    .filter((d) => d.data().isLoadTest !== true)
     .map((d) => {
       const u = d.data();
       const enr = (u.enrichment ?? {}) as Record<string, unknown>;
@@ -443,13 +447,15 @@ function isKnownIntent(body: string): boolean {
   if (/\bwho(?:'?s| is)?\s*(?:here|around)\b/i.test(t)) return true;
   if (/\bfree\s+(?:for|now)\b/i.test(t)) return true;
   if (/\b(?:create|new)\s+event\b/i.test(t) || /^\/event\b/i.test(t)) return true;
+  // RSVP-status query — "have I signed in?", "am I in?", "which events am I in".
+  if (RSVP_STATUS_RE.test(t)) return true;
   // Owner event management — `my events`, edit/cancel (typed or button callback).
-  if (MY_EVENTS_RE.test(t)) return true;
+  if (MY_EVENTS_QUERY_RE.test(t) && !EXPLICIT_CREATE_RE.test(t)) return true;
   if (CANCEL_EVENT_CMD_RE.test(t) || CANCELEVT_BTN_RE.test(t)) return true;
   if (EDIT_EVENT_CMD_RE.test(t) || EDITEVT_BTN_RE.test(t)) return true;
   // `join <event>` RSVP (text or Join-button token) — answer it even mid-onboarding
   // so a broadcast that lands before sign-up finishes isn't eaten as a profile answer.
-  if (/^\/?(?:join|rejoindre|participer)\b[:\s-]*\S/i.test(t)) return true;
+  if (JOIN_CMD_RE.test(t)) return true;
   if (LIST_EVENTS_RE.test(t)) return true;
   // Venture promo: a venture name AND a question/request cue (or a "?").
   if (VENTURE_RE.test(t) && (t.includes("?") || VENTURE_QUESTION_CUE.test(t))) return true;
@@ -933,7 +939,12 @@ async function writeOutbox(
 // `join <event>` / `rejoindre <event>` / `participer <event>` — RSVP. The arg is
 // either an event id (the Join button's callback_data) or a title fragment (a
 // user typing it). Requires a non-empty arg so a bare "join" doesn't match.
-const JOIN_CMD_RE = /^\s*\/?(?:join|rejoindre|participer)\b[:\s-]*(.+)$/i;
+// Accepts the bare button token ("join <id>") and natural phrasings a member
+// types: "I want to join Breakfast meet", "let me join the event Wine + agents",
+// "can I join Morning run". Optional polite/intent lead-in + an optional "event"
+// filler are stripped; the capture group is the event id or title fragment.
+const JOIN_CMD_RE =
+  /^\s*\/?(?:(?:i\s+(?:want|wanna|would\s+like|'?d\s+like)\s+(?:to\s+)?|i'?d\s+like\s+to\s+|let\s+me\s+|can\s+i\s+|please\s+|je\s+(?:veux|voudrais)\s+)?)(?:join|rejoindre|participer|rsvp(?:\s+to)?)\b[:\s-]*(?:(?:the\s+|l[ea']\s*)?(?:event|[ée]v[ée]nement)\s+)?(.+)$/i;
 
 async function handleJoin(
   db: Firestore,
@@ -995,6 +1006,44 @@ async function handleJoin(
   };
 }
 
+// RSVP-status questions — "have I signed in?", "am I in?", "did I join?",
+// "which events am I going to?". Answered concisely from the user's own RSVPs
+// instead of letting Claude dump the public what's-on list (tester #4).
+const RSVP_STATUS_RE =
+  /\b(?:have|did)\s+i\s+(?:sign(?:ed)?\s*in|join(?:ed)?|rsvp(?:'?d|ed)?)\b|\bam\s+i\s+(?:signed\s*in|in\b|going|attending|registered)|\bwhich\s+events?\s+am\s+i\b|\bmy\s+rsvps?\b|\bsuis-je\s+inscrit|\bje\s+suis\s+inscrit\b/i;
+
+// List the events the caller has RSVP'd to (status "going"), soonest first.
+// Uses a collection-group query over events/*/rsvps so it's a single read.
+async function buildMyRsvpsReply(db: Firestore, uid: string, lang: Lang): Promise<string> {
+  const snap = await db
+    .collectionGroup("rsvps")
+    .where("uid", "==", uid)
+    .where("status", "==", "going")
+    .get();
+  const now = Date.now();
+  const rows: Array<{ title: string; when: string; ms: number }> = [];
+  for (const d of snap.docs) {
+    const eventRef = d.ref.parent.parent;
+    if (!eventRef) continue;
+    const ev = await eventRef.get();
+    const data = ev.data();
+    if (!ev.exists || !data || data.status !== "scheduled") continue;
+    const startAt = data.startAt as Timestamp | undefined;
+    const ms = startAt && typeof startAt.toMillis === "function" ? startAt.toMillis() : 0;
+    if (ms && ms < now) continue; // past events drop off
+    rows.push({
+      title: String(data.title ?? "the event"),
+      when: ms ? formatParisDateTime(ms, lang) : "",
+      ms: ms || Number.MAX_SAFE_INTEGER,
+    });
+  }
+  if (rows.length === 0) return msg(lang).rsvpStatusNone;
+  rows.sort((a, b) => a.ms - b.ms);
+  return msg(lang).rsvpStatusList(
+    rows.map((r) => (r.when ? `${r.title} · ${r.when}` : r.title))
+  );
+}
+
 // ── Owner event management (my events / edit / cancel) ──────────────────────
 // These must be matched BEFORE the create-event wizard: CREATE_EVENT_CMD_RE
 // matches a bare "événement", so "annuler événement" would otherwise be eaten as
@@ -1002,6 +1051,13 @@ async function handleJoin(
 // event id — the `my events` inline keyboard sends `cancelevt <id>` / `editevt
 // <id>` callbacks, which the webhook routes in as plain text.
 const MY_EVENTS_RE = /^\s*\/?(?:my\s+events?|mes\s+[ée]v[ée]nements?)\s*$/i;
+// First-person "events I host/created" questions. Without this, "Have I created
+// any event?" matches the `any events?` arm of LIST_EVENTS_RE and gets answered
+// with the public what's-on list instead of the caller's own events. Requires a
+// possessive ("my events") or a past/retrospective frame ("events I created",
+// "have I created … event") so it never swallows the "create event" command.
+const MY_EVENTS_QUERY_RE =
+  /\bmy\s+events?\b|\bmes\s+[ée]v[ée]nements?\b|\bevents?\s+(?:that\s+|did\s+|have\s+)?i\s+(?:create|created|host(?:ed)?|made|make|own|organi[sz]ed?)\b|\b(?:have|did)\s+i\s+(?:create|created|make|made|host|hosted|organi[sz]ed?)\b[^?]*?\bevents?\b/i;
 const CANCEL_EVENT_CMD_RE =
   /^\s*\/?(?:cancel|delete|annuler|supprimer)[\s_-]?(?:event|[ée]v[ée]nement)\b[:\s-]*(.*)$/i;
 const EDIT_EVENT_CMD_RE =
@@ -1439,8 +1495,25 @@ export async function processMessage(deps: ProcessMessageDeps): Promise<void> {
   // Routed before the create-event wizard (CREATE_EVENT_CMD_RE matches a bare
   // "événement", which would otherwise swallow "annuler événement").
 
-  // `my events` — list the caller's own events with Edit/Cancel tap-buttons.
-  if (MY_EVENTS_RE.test(body)) {
+  // RSVP-status query — "have I signed in?", "am I in?", "which events am I
+  // going to?". Answered from the caller's own RSVPs, before the what's-on /
+  // my-events listings so it isn't swallowed by either.
+  if (RSVP_STATUS_RE.test(body)) {
+    const reply = await buildMyRsvpsReply(db, uid, lang);
+    await writeOutbox(db, { provider, uid, phone, chatId, body: reply, type: "rsvp_status" });
+    await appendTurns(db, uid, [
+      { role: "user", content: body, at: Timestamp.now() },
+      { role: "assistant", content: reply, at: Timestamp.now() },
+    ]);
+    await inboxDoc.ref.update({ intent: "rsvp_status" });
+    return;
+  }
+
+  // `my events` (or "have I created any event?", "events I host", …) — list the
+  // caller's own events with Edit/Cancel tap-buttons. The broader query form is
+  // matched here, before LIST_EVENTS_RE, so first-person ownership questions
+  // aren't answered with the public what's-on list.
+  if (MY_EVENTS_QUERY_RE.test(body) && !EXPLICIT_CREATE_RE.test(body)) {
     const r = await buildMyEventsReply(db, uid, lang);
     await writeOutbox(db, {
       provider,

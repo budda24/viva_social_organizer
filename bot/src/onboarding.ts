@@ -254,7 +254,7 @@ function dedupeTopics(topics: string[]): string[] {
 // earlier field (if any) the message amends. Any classifier failure degrades
 // silently to the normal deterministic flow (treat as the current answer).
 export const AMENDMENT_GATE_RE =
-  /\b(as well|also|too|forgot|in addition|on top)\b|^\s*(and|also|plus|oh,? and|btw|by the way|add)\b/i;
+  /\b(as well|also|too|forgot|in addition|on top|aussi|[ée]galement|en plus|en compl[ée]ment|j'?ai oubli[ée]|j'?oubliais)\b|^\s*(and|also|plus|oh,? and|btw|by the way|add|et|ah,? et)\b/i;
 
 type AmendTarget = "current" | "bio" | "topics" | "meet";
 

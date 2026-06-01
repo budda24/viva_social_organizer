@@ -214,7 +214,14 @@ class _DeckIframePanelState extends State<_DeckIframePanel> {
   @override
   Widget build(BuildContext context) {
     final size = MediaQuery.sizeOf(context);
-    final height = (size.height * 0.85).clamp(560.0, 1400.0);
+    // On phones the deck used to fill ~85% of the viewport, leaving no page
+    // gutter to grab — so once the finger was over the iframe, scrolling the
+    // outer page was nearly impossible. Cap it shorter on compact screens so
+    // there's comfortable scrollable space above and below the embed.
+    final isCompact = size.width < 760;
+    final height = isCompact
+        ? (size.height * 0.6).clamp(360.0, 680.0)
+        : (size.height * 0.85).clamp(560.0, 1400.0);
     return Container(
       decoration: BoxDecoration(
         color: Colors.white,

@@ -1,3 +1,4 @@
+import 'dart:js_interop';
 import 'dart:math';
 
 import 'package:flutter/foundation.dart';
@@ -72,6 +73,30 @@ class _SignInBlock extends StatefulWidget {
 class _SignInBlockState extends State<_SignInBlock> {
   bool _busy = false;
   String? _error;
+  JSFunction? _onPageShow;
+
+  @override
+  void initState() {
+    super.initState();
+    // Sign-in does a full-page redirect to LinkedIn with _busy=true. Returning
+    // via the browser back button restores this page from the bfcache with
+    // _busy still true → a permanently spinning "Signing in…" button. Reset the
+    // loading state whenever the page is (re)shown.
+    if (kIsWeb) {
+      _onPageShow = ((web.Event _) {
+        if (mounted && _busy) setState(() => _busy = false);
+      }).toJS;
+      web.window.addEventListener('pageshow', _onPageShow);
+    }
+  }
+
+  @override
+  void dispose() {
+    if (_onPageShow != null) {
+      web.window.removeEventListener('pageshow', _onPageShow);
+    }
+    super.dispose();
+  }
 
   Future<void> _signInWithLinkedIn() async {
     setState(() {

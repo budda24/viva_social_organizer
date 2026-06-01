@@ -20,6 +20,10 @@ class MembersScreen extends StatelessWidget {
     final isCompact = width < 940;
 
     final currentUid = FirebaseAuth.instance.currentUser?.uid;
+    // The directory is sign-in gated (firestore rules: read if isSignedIn()).
+    // Querying while signed-out throws permission-denied, which used to surface
+    // as a scary red error. Show a sign-in prompt instead — no dead end.
+    final signedIn = currentUid != null;
     // PROTOTYPE: list every user doc that isn't explicitly opted-out. Old
     // sign-ups carry status='signed_in' (pre-auto-approve) — keep them
     // visible. Filter on `status != 'opted_out'` client-side because
@@ -45,6 +49,9 @@ class MembersScreen extends StatelessWidget {
                 style: TextStyle(color: AppColors.inkMuted, fontSize: 14),
               ),
               const SizedBox(height: 28),
+              if (!signedIn)
+                const _SignInPrompt()
+              else
               // AppScaffold uses a SingleChildScrollView; Expanded is illegal
               // in that unbounded context. shrinkWrap+NeverScrollable lets the
               // grid take just the height it needs and the parent scroll
@@ -56,6 +63,14 @@ class MembersScreen extends StatelessWidget {
                     return const _Loading();
                   }
                   if (snap.hasError) {
+                    // Permission-denied almost always means the session isn't
+                    // authenticated (the directory is sign-in gated) — point
+                    // them at sign-in rather than showing a raw error.
+                    if (snap.error is FirebaseException &&
+                        (snap.error as FirebaseException).code ==
+                            'permission-denied') {
+                      return const _SignInPrompt();
+                    }
                     return _ErrorView(error: snap.error.toString());
                   }
                   final docs = (snap.data?.docs ?? const []).where((d) {
@@ -316,6 +331,57 @@ class _Empty extends StatelessWidget {
             'People appear here once they sign in with LinkedIn.',
             style: TextStyle(color: AppColors.inkMuted, fontSize: 13),
             textAlign: TextAlign.center,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _SignInPrompt extends StatelessWidget {
+  const _SignInPrompt();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      height: 240,
+      alignment: Alignment.center,
+      padding: const EdgeInsets.all(24),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Text(
+            'Sign in to see who\'s here',
+            style: TextStyle(color: AppColors.ink, fontSize: 18),
+          ),
+          const SizedBox(height: 8),
+          const Text(
+            'The member directory is visible once you sign in with LinkedIn.',
+            style: TextStyle(color: AppColors.inkMuted, fontSize: 13),
+            textAlign: TextAlign.center,
+          ),
+          const SizedBox(height: 18),
+          MouseRegion(
+            cursor: SystemMouseCursors.click,
+            child: GestureDetector(
+              onTap: () => Navigator.of(context).pushNamed('/in'),
+              child: Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
+                decoration: BoxDecoration(
+                  color: AppColors.accent,
+                  borderRadius: BorderRadius.circular(999),
+                ),
+                child: const Text(
+                  'Sign in',
+                  style: TextStyle(
+                    color: AppColors.accentInk,
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+            ),
           ),
         ],
       ),

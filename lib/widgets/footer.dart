@@ -27,7 +27,7 @@ class AppFooter extends StatelessWidget {
       MouseRegion(
         cursor: SystemMouseCursors.click,
         child: GestureDetector(
-          onTap: () => copyEmail(context, 'franek@online-tribes.com'),
+          onTap: () => emailAction(context, 'franek@online-tribes.com'),
           child: const Text(
             'franek@online-tribes.com',
             style: TextStyle(

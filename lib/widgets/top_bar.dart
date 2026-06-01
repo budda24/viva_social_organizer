@@ -83,7 +83,9 @@ class TopBar extends StatelessWidget {
                 ),
               ],
               const Spacer(),
-              ?trailing,
+              // Flexible so a wide trailing pill shrinks instead of overflowing
+              // the row (and getting clipped at the screen edge) on narrow phones.
+              if (trailing != null) Flexible(child: trailing!),
             ],
           ),
         );

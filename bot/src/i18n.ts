@@ -163,6 +163,10 @@ export interface Bundle {
   ) => string;
   rsvpNotFound: string;
   rsvpAmbiguous: string;
+  // RSVP status query — "have I signed in?", "am I in?", "which events am I
+  // going to?". Answered concisely instead of dumping the full what's-on list.
+  rsvpStatusList: (lines: string[]) => string;
+  rsvpStatusNone: string;
   // Owner event management — `my events`, edit/cancel flows, and the notices
   // sent to attendees when the host changes or calls off an event.
   myEventsHeader: string;
@@ -239,7 +243,7 @@ const EN: Bundle = {
   langSet: (name) => `Done — I'll speak ${name} from now on.`,
   rsvpJoined: (title, place, when, groupLink) =>
     [
-      `You're in for "${title}" 🎟️`,
+      `✅ You're signed in for "${title}"`,
       place || when ? `📍 ${[place, when].filter(Boolean).join(" · ")}` : null,
       groupLink ? `Coordinate with the group: ${groupLink}` : null,
     ]
@@ -249,6 +253,10 @@ const EN: Bundle = {
     'Couldn\'t find that event. Reply "what\'s on" to see what\'s scheduled.',
   rsvpAmbiguous:
     'More than one event matches — reply "what\'s on" and use the exact title.',
+  rsvpStatusList: (lines) =>
+    `✅ Yes — you're signed in for:\n${lines.map((l) => `• ${l}`).join("\n")}`,
+  rsvpStatusNone:
+    'Not yet — you haven\'t signed in for any event. Reply "what\'s on" to pick one.',
   myEventsHeader: "Events you host:",
   myEventsEmpty:
     "You're not hosting any events yet. Reply `create event` to start one.",
@@ -369,7 +377,7 @@ const FR: Bundle = {
   langSet: (name) => `C'est noté — je te parle en ${name} désormais.`,
   rsvpJoined: (title, place, when, groupLink) =>
     [
-      `Tu participes à « ${title} » 🎟️`,
+      `✅ C'est confirmé, tu participes à « ${title} »`,
       place || when ? `📍 ${[place, when].filter(Boolean).join(" · ")}` : null,
       groupLink ? `Rejoins le groupe pour t'organiser : ${groupLink}` : null,
     ]
@@ -379,6 +387,10 @@ const FR: Bundle = {
     "Événement introuvable. Réponds « quoi de prévu » pour voir l'agenda.",
   rsvpAmbiguous:
     "Plusieurs événements correspondent — réponds « quoi de prévu » et utilise le titre exact.",
+  rsvpStatusList: (lines) =>
+    `✅ Oui — tu es inscrit à :\n${lines.map((l) => `• ${l}`).join("\n")}`,
+  rsvpStatusNone:
+    "Pas encore — tu n'es inscrit à aucun événement. Réponds « quoi de prévu » pour en choisir un.",
   myEventsHeader: "Les événements que tu organises :",
   myEventsEmpty:
     "Tu n'organises encore aucun événement. Réponds `créer événement` pour en lancer un.",

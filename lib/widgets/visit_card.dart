@@ -197,7 +197,7 @@ class _Chips extends StatelessWidget {
             icon: l.icon,
             label: l.label,
             onTap: l.email
-                ? () => copyEmail(context, l.url)
+                ? () => emailAction(context, l.url)
                 : () => openLink(Uri.parse(l.url)),
           ),
       ],

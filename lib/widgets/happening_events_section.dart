@@ -124,7 +124,21 @@ class HappeningEventsSection extends StatelessWidget {
                     runSpacing: gap,
                     children: [
                       for (final e in events)
-                        SizedBox(width: cardWidth, child: EventCard(event: e)),
+                        SizedBox(
+                          width: cardWidth,
+                          // The whole card is a sign-in affordance — testers
+                          // couldn't tell the "Sign in for when & host" pill was
+                          // tappable, so make the card itself clickable with a
+                          // pointer cursor and route to the invite/sign-in flow.
+                          child: MouseRegion(
+                            cursor: SystemMouseCursors.click,
+                            child: GestureDetector(
+                              onTap: () =>
+                                  Navigator.of(context).pushNamed('/in'),
+                              child: EventCard(event: e),
+                            ),
+                          ),
+                        ),
                     ],
                   );
                 },
