@@ -69,6 +69,29 @@ export function isNoWord(text: string): boolean {
   );
 }
 
+// Lenient confirmation detection for the yes/no fast-paths. People rarely reply
+// with the bare token — they echo the CTA ("yes create it", "ok do it",
+// "yeah go ahead", "oui crée-le"). The strict word matchers above missed these,
+// so the pending action was silently dropped and the message fell through to
+// Claude, which re-proposed the action and re-showed the Yes/No buttons.
+// Matches a LEADING yes/no word (optionally followed by anything); a leading
+// no-word always wins so "ok no thanks" reads as a decline, not a confirm.
+const YES_LEAD =
+  /^(?:yes|yep|yeah|yup|ok|okay|sure|confirm(?:ed)?|go|go ahead|do it|sounds good|please do|let'?s do it|oui|ouais|ouaip|ouip|d'?accord|daccord|vas-y|c'?est bon|parfait|crée|cree)\b/i;
+const NO_LEAD =
+  /^(?:no|nope|nah|cancel|abort|don'?t|never ?mind|nvm|non|annule[rz]?|laisse tomber|nan|passe|pas maintenant)\b/i;
+
+export function isAffirmative(text: string): boolean {
+  const t = text.trim();
+  if (isNoWord(t) || NO_LEAD.test(t)) return false;
+  return isYesWord(t) || YES_LEAD.test(t);
+}
+
+export function isNegative(text: string): boolean {
+  const t = text.trim();
+  return isNoWord(t) || NO_LEAD.test(t);
+}
+
 interface EventAnnounceArgs {
   emoji: string;
   title: string;

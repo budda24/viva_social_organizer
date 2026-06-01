@@ -37,8 +37,8 @@ import {
 import { createTribeForHost } from "./online-tribes.js";
 import {
   claudeLanguageDirective,
-  isNoWord,
-  isYesWord,
+  isAffirmative,
+  isNegative,
   languageName,
   msg,
   normalizeLang,
@@ -178,8 +178,12 @@ async function setPendingAction(
   }
 }
 
-const isYes = isYesWord;
-const isNo = isNoWord;
+// Lenient on purpose: these only gate the yes/no fast-paths, where a
+// confirmation prompt is already outstanding. Accepting "yes create it" /
+// "ok do it" here keeps the pending action from falling through to Claude
+// (which would re-propose it and re-show the Yes/No buttons).
+const isYes = isAffirmative;
+const isNo = isNegative;
 
 // `create event`, `/event`, `new event`, `add event` (+ French: `créer
 // événement`, `nouvel événement`, `événement`), optionally with an inline
