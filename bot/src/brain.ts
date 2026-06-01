@@ -38,7 +38,9 @@ import { createTribeForHost } from "./online-tribes.js";
 import {
   claudeLanguageDirective,
   isAffirmative,
+  isConnectWord,
   isNegative,
+  isPassWord,
   languageName,
   msg,
   normalizeLang,
@@ -1331,7 +1333,9 @@ export async function processMessage(deps: ProcessMessageDeps): Promise<void> {
   // prompt is the most recent thing they saw, and someone is waiting on them.
   const incomingIntro = convoState.pendingIntroRequest;
   if (incomingIntro) {
-    if (isYes(body)) {
+    // The buttons read "Connect" / "Pass" — accept those typed labels too, not
+    // just yes/no, so a typed "Connect" actually completes the connection.
+    if (isConnectWord(body)) {
       const result = await acceptIntroRequest(
         { db, uid, userData: userData as Record<string, unknown>, lang },
         incomingIntro
@@ -1345,7 +1349,7 @@ export async function processMessage(deps: ProcessMessageDeps): Promise<void> {
       await inboxDoc.ref.update({ intent: "intro_accepted" });
       return;
     }
-    if (isNo(body)) {
+    if (isPassWord(body)) {
       const result = await declineIntroRequest(
         { db, uid, userData: userData as Record<string, unknown>, lang },
         incomingIntro

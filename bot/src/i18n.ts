@@ -92,6 +92,23 @@ export function isNegative(text: string): boolean {
   return isNoWord(t) || NO_LEAD.test(t);
 }
 
+// The incoming-intro prompt shows "🤝 Connect" / "Pass" buttons. People often
+// type the visible label instead of tapping, so accepting/declining a
+// connection must recognise those words too — otherwise "Connect" falls through
+// to Claude and the request never resolves.
+export function isConnectWord(text: string): boolean {
+  const t = text.trim();
+  return (
+    isAffirmative(t) ||
+    /^(?:🤝\s*)?(?:connect|connecter|se\s+connecter|connecte)\b/i.test(t)
+  );
+}
+
+export function isPassWord(text: string): boolean {
+  const t = text.trim();
+  return isNegative(t) || /^(?:pass|passer|d[ée]clin(?:e|er)|decline)\b/i.test(t);
+}
+
 interface EventAnnounceArgs {
   emoji: string;
   title: string;
