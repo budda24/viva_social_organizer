@@ -985,7 +985,7 @@ async function writeOutbox(
 const JOIN_CMD_RE =
   /^\s*\/?(?:(?:i\s+(?:want|wanna|would\s+like|'?d\s+like)\s+(?:to\s+)?|i'?d\s+like\s+to\s+|let\s+me\s+|can\s+i\s+|please\s+|je\s+(?:veux|voudrais)\s+)?)(?:join|rejoindre|participer|rsvp(?:\s+to)?)\b[:\s-]*(?:(?:the\s+|l[ea']\s*)?(?:event|[ée]v[ée]nement)\s+)?(.+)$/i;
 
-async function handleJoin(
+export async function handleJoin(
   db: Firestore,
   uid: string,
   arg: string,
@@ -1240,7 +1240,7 @@ async function buildMyEventsReply(
 // of typing `join <title>`. Public listing shows the neighborhood only; the exact
 // address is revealed on RSVP (mirrors the broadcast in actions.ts).
 const WHATS_ON_MAX = 8;
-async function buildWhatsOnReply(
+export async function buildWhatsOnReply(
   db: Firestore,
   uid: string,
   lang: Lang
