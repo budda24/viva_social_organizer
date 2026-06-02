@@ -116,3 +116,59 @@ export async function createTribeForHost(args: {
     clearTimeout(timer);
   }
 }
+
+export type DeleteTribeResult =
+  | { ok: true; deleted: boolean }
+  | { ok: false; reason: "not_configured" | "not_partner" | "error" };
+
+// The delete endpoint sits next to create in the same OT project/region, so we
+// derive its URL from OT_TRIBE_ENDPOINT_URL unless explicitly overridden.
+function deleteEndpointUrl(): string | null {
+  const explicit = process.env.OT_TRIBE_DELETE_ENDPOINT_URL;
+  if (explicit) return explicit;
+  const create = process.env.OT_TRIBE_ENDPOINT_URL;
+  if (!create) return null;
+  return create.replace(/createPartnerTribe(\/?)$/, "deletePartnerTribe$1");
+}
+
+/** Pull the tribeId out of a stored invite link (…/t/<tribeId>). */
+export function tribeIdFromLink(link: unknown): string | null {
+  if (typeof link !== "string") return null;
+  const m = link.match(/\/t\/([^/?#]+)/);
+  return m ? m[1] : null;
+}
+
+/**
+ * Delete an event's tribe (called when the host cancels the event). Best-effort:
+ * the caller ignores failures so a cancel never blocks on Online Tribes. The OT
+ * endpoint only deletes tribes the partner pipeline created (partnerSource guard).
+ */
+export async function deleteTribeForEvent(tribeId: string): Promise<DeleteTribeResult> {
+  const url = deleteEndpointUrl();
+  const secret = process.env.OT_TRIBE_SECRET;
+  if (!url || !secret) return { ok: false, reason: "not_configured" };
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
+  try {
+    const res = await fetch(url, {
+      method: "POST",
+      headers: { "content-type": "application/json", authorization: `Bearer ${secret}` },
+      body: JSON.stringify({ tribeId }),
+      signal: controller.signal,
+    });
+    if (res.status === 403) return { ok: false, reason: "not_partner" };
+    if (!res.ok) {
+      const text = await res.text().catch(() => "");
+      console.error(`[online-tribes] deletePartnerTribe ${res.status}: ${text.slice(0, 200)}`);
+      return { ok: false, reason: "error" };
+    }
+    const json = (await res.json()) as { deleted?: boolean };
+    return { ok: true, deleted: json.deleted === true };
+  } catch (e) {
+    console.error(`[online-tribes] deletePartnerTribe failed: ${e instanceof Error ? e.message : String(e)}`);
+    return { ok: false, reason: "error" };
+  } finally {
+    clearTimeout(timer);
+  }
+}

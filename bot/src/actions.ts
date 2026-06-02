@@ -22,7 +22,12 @@
 import type { Firestore } from "firebase-admin/firestore";
 import { FieldValue, Timestamp } from "firebase-admin/firestore";
 import { msg, normalizeLang, type Lang } from "./i18n.js";
-import { createTribeForHost, isOnlineTribesConfigured } from "./online-tribes.js";
+import {
+  createTribeForHost,
+  deleteTribeForEvent,
+  isOnlineTribesConfigured,
+  tribeIdFromLink,
+} from "./online-tribes.js";
 
 const KIND_ENUM = [
   "breakfast",
@@ -545,6 +550,18 @@ async function executeCancelEvent(
     (rlang) => msg(rlang).eventCancelledNotice(title, hostName),
     "event_cancelled"
   );
+
+  // The event's Online Tribes group should die with the event. Best-effort: a
+  // failure here never blocks the cancel (the OT endpoint only deletes tribes the
+  // partner pipeline created, so this can't touch a user's own tribe).
+  const tribeId = tribeIdFromLink(ev.tribeLink);
+  if (tribeId) {
+    const del = await deleteTribeForEvent(tribeId);
+    if (!del.ok && del.reason !== "not_configured") {
+      console.warn(`[cancel] tribe delete failed for event ${action.eventId}: ${del.reason}`);
+    }
+  }
+
   return { reply: msg(lang).eventCancelled(title, notified) };
 }
 
