@@ -328,7 +328,7 @@ const EN: Bundle = {
   tribeReady: (link) => `🎪 Group chat ready — share it with attendees: ${link}`,
   otUsernamePrompt:
     "One more thing — what's your Online Tribes username? I'll spin up a group chat for this event that you'll own. " +
-    "No account yet? Grab one at online-tribes.com, then reply your username. (Or reply skip.)",
+    "No account yet? Create one at https://online-tribes.com, then come back and reply your username. (Or reply skip.)",
   otUsernameConfirm: (handle) =>
     `I'll set up the group under Online Tribes handle "@${handle}" — and it'll be owned by that account. ` +
     `Reply yes to confirm, send a different handle, or reply skip.`,
@@ -474,7 +474,7 @@ const FR: Bundle = {
   tribeReady: (link) => `🎪 Groupe de discussion prêt — partage-le aux participants : ${link}`,
   otUsernamePrompt:
     "Dernière chose — quel est ton nom d'utilisateur Online Tribes ? Je crée un groupe de discussion pour cet événement, dont tu seras propriétaire. " +
-    "Pas encore de compte ? Inscris-toi sur online-tribes.com, puis réponds ton nom d'utilisateur. (Ou réponds skip.)",
+    "Pas encore de compte ? Crée-en un sur https://online-tribes.com, puis reviens répondre ton nom d'utilisateur. (Ou réponds skip.)",
   otUsernameConfirm: (handle) =>
     `Je crée le groupe sous le compte Online Tribes « @${handle} » — c'est ce compte qui en sera propriétaire. ` +
     `Réponds oui pour confirmer, envoie un autre identifiant, ou réponds skip.`,
