@@ -205,6 +205,8 @@ export interface Bundle {
   eventCancelledNotice: (title: string, hostName: string) => string;
   eventUpdated: (title: string, notified: number) => string;
   eventUpdatedNotice: (a: EventUpdateArgs) => string;
+  // Reminder sent to each RSVP'd attendee ~24h before the event starts.
+  eventReminder: (title: string, when: string, place: string) => string;
   // Online Tribes group chat: the host links their OT username once, then each
   // event auto-gets a tribe they own; the invite link is shared with attendees.
   tribeReady: (link: string) => string;
@@ -311,6 +313,14 @@ const EN: Bundle = {
       `Update on "${a.title}" 🔄`,
       [a.when, a.place].filter(Boolean).join(" · "),
       a.hostName ? `Hosted by ${a.hostName}.` : null,
+    ]
+      .filter(Boolean)
+      .join("\n"),
+  eventReminder: (title, when, place) =>
+    [
+      `⏰ Reminder: "${title}" is coming up`,
+      [when, place].filter(Boolean).join(" · ") || null,
+      "See you there!",
     ]
       .filter(Boolean)
       .join("\n"),
@@ -446,6 +456,14 @@ const FR: Bundle = {
       `Changement sur « ${a.title} » 🔄`,
       [a.when, a.place].filter(Boolean).join(" · "),
       a.hostName ? `Organisé par ${a.hostName}.` : null,
+    ]
+      .filter(Boolean)
+      .join("\n"),
+  eventReminder: (title, when, place) =>
+    [
+      `⏰ Rappel : « ${title} » approche`,
+      [when, place].filter(Boolean).join(" · ") || null,
+      "À très vite !",
     ]
       .filter(Boolean)
       .join("\n"),

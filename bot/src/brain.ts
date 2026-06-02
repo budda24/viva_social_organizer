@@ -639,7 +639,9 @@ async function loadUpcomingEvents(db: Firestore): Promise<UpcomingEvent[]> {
         description: String(e.description ?? ""),
       };
     })
-    .filter((e) => e.startAtMs > now) // future only (≤ EVENTS_TTL_MS staleness)
+    // Future events + ones that started within the ongoing window (still
+    // happening now) — so a live event isn't dropped the instant it begins.
+    .filter((e) => e.startAtMs > now - ONGOING_WINDOW_MS)
     .sort((a, b) => a.startAtMs - b.startAtMs)
     .slice(0, 15);
 }
@@ -647,6 +649,10 @@ async function loadUpcomingEvents(db: Firestore): Promise<UpcomingEvent[]> {
 // In-process events cache — same stale-while-revalidate + single-flight pattern
 // as the member directory, so a burst of messages triggers one Firestore read.
 const EVENTS_TTL_MS = Number(process.env.EVENTS_TTL_MS ?? 30_000);
+// An event with no explicit end is treated as "happening now" for this long
+// after its start, so a currently-running event still shows in what's-on
+// instead of vanishing the moment it begins.
+const ONGOING_WINDOW_MS = Number(process.env.ONGOING_WINDOW_MS ?? 3 * 60 * 60 * 1000);
 let eventsCache: { events: UpcomingEvent[]; loadedAt: number } | null = null;
 let eventsInflight: Promise<UpcomingEvent[]> | null = null;
 
@@ -680,7 +686,8 @@ function formatEventLine(e: UpcomingEvent): string {
     minute: "2-digit",
     hour12: false,
   }).format(new Date(e.startAtMs));
-  const parts = [`- ${e.title}`, `· ${when} Paris`];
+  const live = e.startAtMs > 0 && e.startAtMs <= Date.now();
+  const parts = [`- ${live ? "[HAPPENING NOW] " : ""}${e.title}`, `· ${when} Paris`];
   // Public listings expose the neighborhood only — the exact address
   // (addressFull) is revealed to a member when they RSVP (see handleJoin), so we
   // deliberately never put it in the LLM context block.
@@ -1083,7 +1090,7 @@ const MY_EVENTS_RE = /^\s*\/?(?:my\s+events?|mes\s+[ée]v[ée]nements?)\s*$/i;
 // possessive ("my events") or a past/retrospective frame ("events I created",
 // "have I created … event") so it never swallows the "create event" command.
 const MY_EVENTS_QUERY_RE =
-  /\bmy\s+events?\b|\bmes\s+[ée]v[ée]nements?\b|\bevents?\s+(?:that\s+|did\s+|have\s+)?i(?:'m|’m| am)?\s+(?:create|created|host(?:ed|ing)?|made|make|own|organi[sz]ed?)\b|\b(?:have|did)\s+i\s+(?:create|created|make|made|host|hosted|organi[sz]ed?)\b[^?]*?\bevents?\b/i;
+  /\bmy\s+events?\b|\bmes\s+[ée]v[ée]nements?\b|\bevents?\s+(?:that\s+|did\s+|have\s+)?i(?:'m|’m| am)?\s+(?:create|created|host(?:ed|ing)?|made|make|own|organi[sz]ed?)\b|\b(?:what|which)\s+events?\s+(?:am|have|did)\s+i\s+(?:create|created|host(?:ed|ing)?|made|make|own|organi[sz]ed?)\b|\b(?:have|did)\s+i\s+(?:create|created|make|made|host|hosted|organi[sz]ed?)\b[^?]*?\bevents?\b/i;
 const CANCEL_EVENT_CMD_RE =
   /^\s*\/?(?:cancel|delete|annuler|supprimer)[\s_-]?(?:event|[ée]v[ée]nement)\b[:\s-]*(.*)$/i;
 const EDIT_EVENT_CMD_RE =
@@ -1229,10 +1236,13 @@ async function buildWhatsOnReply(
   }
   const lines = [msg(lang).whatsOnHeader];
   const buttons: OutboxButton[] = [];
+  const nowMs = Date.now();
   for (const e of events) {
     const when = e.startAtMs ? formatParisDateTime(e.startAtMs, lang) : "";
     const meta = [when, e.addressNeighborhood].filter(Boolean).join(" · ");
-    lines.push(`- ${e.title}${meta ? ` · ${meta}` : ""}`);
+    const live = e.startAtMs > 0 && e.startAtMs <= nowMs;
+    const tag = live ? (lang === "fr" ? "🔴 en cours · " : "🔴 now · ") : "";
+    lines.push(`- ${tag}${e.title}${meta ? ` · ${meta}` : ""}`);
     buttons.push({ text: `${msg(lang).btn.join} ${e.title}`.slice(0, 60), data: `join ${e.id}` });
   }
   const list = lines.join("\n");

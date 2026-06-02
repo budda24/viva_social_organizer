@@ -220,7 +220,7 @@ interface ChannelRoute {
   chatId?: number;
 }
 
-function pickChannel(userData: Record<string, unknown>): ChannelRoute | null {
+export function pickChannel(userData: Record<string, unknown>): ChannelRoute | null {
   const tg = userData.telegramChatId;
   if (typeof tg === "number" && Number.isFinite(tg)) {
     return { provider: "telegram", chatId: tg };
@@ -232,7 +232,7 @@ function pickChannel(userData: Record<string, unknown>): ChannelRoute | null {
   return null;
 }
 
-async function enqueueOutbox(
+export async function enqueueOutbox(
   db: Firestore,
   args: {
     recipientUid: string;

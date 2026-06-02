@@ -527,11 +527,16 @@ class _MatchedHumansBlock extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isCompact = MediaQuery.sizeOf(context).width < 540;
+    // Fetch a wider window and filter to upcoming + currently-ongoing events
+    // client-side. (A startAt range query would need a composite index next to
+    // the status whereIn, so we slice in memory instead.) Without this, the
+    // oldest events sort first and bury the genuinely upcoming ones past the
+    // limit — which read as "only ongoing/past events show".
     final stream = FirebaseFirestore.instance
         .collection('events')
         .where('status', whereIn: ['scheduled', 'live'])
         .orderBy('startAt')
-        .limit(6)
+        .limit(30)
         .snapshots();
 
     return Column(
@@ -540,7 +545,15 @@ class _MatchedHumansBlock extends StatelessWidget {
         StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
           stream: stream,
           builder: (context, snap) {
-            final docs = snap.data?.docs ?? const [];
+            // Keep upcoming events + ones still ongoing (started within the last
+            // 3h); drop events that are already over. Then cap at 6.
+            final cutoff = DateTime.now().subtract(const Duration(hours: 3));
+            final allDocs = snap.data?.docs ?? const [];
+            final docs = allDocs.where((d) {
+              final s = d.data()['startAt'];
+              if (s is! Timestamp) return true; // keep undated rather than hide
+              return s.toDate().isAfter(cutoff);
+            }).take(6).toList(growable: false);
 
             final headerRow = Row(
               children: [

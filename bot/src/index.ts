@@ -15,9 +15,11 @@ import { getFirestore, FieldValue, Timestamp } from "firebase-admin/firestore";
 import * as fs from "node:fs";
 import { processMessage } from "./brain.js";
 import { enrichmentTick } from "./enrich.js";
+import { reminderTick } from "./reminders.js";
 
 const POLL_INTERVAL_MS = Number(process.env.POLL_INTERVAL_MS ?? 2000);
 const ENRICH_POLL_INTERVAL_MS = Number(process.env.ENRICH_POLL_INTERVAL_MS ?? 5000);
+const REMINDER_POLL_INTERVAL_MS = Number(process.env.REMINDER_POLL_INTERVAL_MS ?? 15 * 60 * 1000);
 const MAX_CONCURRENT = Number(process.env.MAX_CONCURRENT ?? 5);
 const MAX_ENRICH_CONCURRENT = Number(process.env.MAX_ENRICH_CONCURRENT ?? 2);
 const LEASE_MS = 60_000;
@@ -160,6 +162,10 @@ setInterval(() => {
     console.error("[bot] enrichment tick failed:", e)
   );
 }, ENRICH_POLL_INTERVAL_MS);
+
+setInterval(() => {
+  reminderTick(db).catch((e) => console.error("[bot] reminder tick failed:", e));
+}, REMINDER_POLL_INTERVAL_MS);
 
 heartbeat().catch((e) => console.error("[bot] initial heartbeat failed:", e));
 tick().catch((e) => console.error("[bot] initial tick failed:", e));

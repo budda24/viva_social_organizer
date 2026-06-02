@@ -111,6 +111,24 @@ export const telegramWebhook = onRequest(
 
     const db = getFirestore();
 
+    // Already-bound chats re-open the bot with a /start all the time (Telegram
+    // shows a Start button, and deep-links re-fire it). Don't run them through
+    // the invite-binding flow — that wrongly answers "Invite code not found" /
+    // "open your invite link" to someone who's already connected. Greet them and
+    // stop, so a duplicate /start is just a harmless "you're connected" note.
+    if (text === "/start" || text.startsWith("/start ")) {
+      const bound = await resolveUserByChannel("telegram", chatId);
+      if (bound) {
+        await queueReply(db, {
+          chatId,
+          uid: bound.uid,
+          body: "You're connected ✓ Reply `help` to see what I can do.",
+        });
+        res.status(200).send("ok");
+        return;
+      }
+    }
+
     // Path 1: /start <inviteCode> — binding flow.
     if (text.startsWith("/start ")) {
       const code = text.slice("/start ".length).trim().toUpperCase();
