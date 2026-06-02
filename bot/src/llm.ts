@@ -14,7 +14,10 @@
  *
  * Backend selection via LLM_BACKEND:
  *   - "local-first" (default): try local, fall back to Anthropic on hard failure.
- *   - "local":                 local only, no fallback (a local outage → throw).
+ *   - "local":                 local only — a local outage throws, EXCEPT a
+ *                              mandatory-action turn (expectAction) the local
+ *                              model can't format, which still falls back to
+ *                              Anthropic so create/edit-event never dead-ends.
  *   - "anthropic":             skip local entirely (one-line rollback).
  */
 
@@ -91,25 +94,42 @@ export async function runChat(opts: ChatOpts): Promise<ChatResult> {
   const temperature = opts.temperature ?? LOCAL_TEMPERATURE;
 
   if (localEnabled()) {
-    try {
-      const text = await ollamaChat({
-        system: opts.system.join("\n\n"),
-        user: opts.user,
-        maxTokens: opts.maxTokens,
-        temperature,
-        stop: opts.stop,
-        timeoutMs: opts.timeoutMs ?? LOCAL_TIMEOUT_MS,
-      });
-      if (!text) throw new Error("ollama returned empty content");
-      if (opts.expectAction && !hasValidActionMarker(text)) {
-        throw new Error("ollama reply missing required action marker");
+    // A missing-marker reply on a mandatory-action turn is a transient formatting
+    // miss (the local model is nondeterministic), not an outage — so retry locally
+    // once before giving up. Ordinary turns get a single attempt.
+    const localAttempts = opts.expectAction ? 2 : 1;
+    for (let attempt = 1; attempt <= localAttempts; attempt++) {
+      try {
+        const text = await ollamaChat({
+          system: opts.system.join("\n\n"),
+          user: opts.user,
+          maxTokens: opts.maxTokens,
+          temperature,
+          stop: opts.stop,
+          timeoutMs: opts.timeoutMs ?? LOCAL_TIMEOUT_MS,
+        });
+        if (!text) throw new Error("ollama returned empty content");
+        if (opts.expectAction && !hasValidActionMarker(text)) {
+          throw new Error("ollama reply missing required action marker");
+        }
+        return { text, backend: "local" };
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        const markerMiss = message.includes("missing required action marker");
+        // Another local try left, and it's a recoverable marker miss → retry.
+        if (markerMiss && attempt < localAttempts) {
+          console.warn(`[llm] local marker miss (attempt ${attempt}/${localAttempts}), retrying local`);
+          continue;
+        }
+        // In pure-"local" mode we normally surface a local outage rather than pay
+        // for Anthropic. The ONE exception: a mandatory-action turn the local model
+        // can't format — rescue it via Haiku so a tester's "create event" (or
+        // "edit event") never dead-ends with "unable to…".
+        const rescueMandatoryAction = !!opts.expectAction && markerMiss;
+        if (LLM_BACKEND === "local" && !rescueMandatoryAction) throw err;
+        console.warn(`[llm] local failed, falling back to anthropic: ${message}`);
+        break; // fall through to Anthropic
       }
-      return { text, backend: "local" };
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      if (LLM_BACKEND === "local") throw err; // no fallback configured
-      console.warn(`[llm] local failed, falling back to anthropic: ${message}`);
-      // fall through to Anthropic
     }
   }
 

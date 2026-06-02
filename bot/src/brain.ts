@@ -995,6 +995,56 @@ async function writeOutbox(
 const JOIN_CMD_RE =
   /^\s*\/?(?:(?:i\s+(?:want|wanna|would\s+like|'?d\s+like)\s+(?:to\s+)?|i'?d\s+like\s+to\s+|let\s+me\s+|can\s+i\s+|please\s+|je\s+(?:veux|voudrais)\s+)?)(?:join|rejoindre|participer|rsvp(?:\s+to)?)\b[:\s-]*(?:(?:the\s+|l[ea']\s*)?(?:event|[ée]v[ée]nement)\s+)?(.+)$/i;
 
+// Normalize a title/query for tolerant matching: lowercase, then fold any run of
+// non-alphanumeric characters (so "·", ".", "-", extra spaces all collapse) into
+// a single space. "Late lunch · Le Marais" and "Late launch . Le Marais" both
+// normalize to comparable token streams.
+function normTitle(s: string): string {
+  return s.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+}
+
+// Levenshtein edit distance — only ever run on short event-title tokens.
+function editDistance(a: string, b: string): number {
+  const dp = Array.from({ length: a.length + 1 }, (_, i) => i);
+  for (let j = 1; j <= b.length; j++) {
+    let prev = dp[0];
+    dp[0] = j;
+    for (let i = 1; i <= a.length; i++) {
+      const tmp = dp[i];
+      dp[i] = Math.min(dp[i] + 1, dp[i - 1] + 1, prev + (a[i - 1] === b[j - 1] ? 0 : 1));
+      prev = tmp;
+    }
+  }
+  return dp[a.length];
+}
+
+// Two title tokens count as the same word if they're identical, or a near-typo:
+// edit-distance ≤1 for 4-char tokens, ≤2 for longer ones — but only when they
+// share a first letter, which keeps "lauch"→"lunch" while blocking unrelated
+// 2-edit collisions ("lunch"↛"bench").
+function tokensMatch(qt: string, tt: string): boolean {
+  if (tt === qt) return true;
+  if (qt.length < 4 || tt[0] !== qt[0]) return false;
+  return editDistance(qt, tt) <= (qt.length >= 5 ? 2 : 1);
+}
+
+// Tolerant title match for a typed join / RSVP-status query. Punctuation-blind
+// substring first (either direction, preserving the old behavior), then a token
+// pass so a small typo ("launch"/"lauch" → "lunch") or the "·"/"." separator
+// still resolves. Conservative: EVERY query token must hit a title token, so a
+// stray extra word makes it miss rather than mis-route to the wrong event — and
+// the callers still require a UNIQUE event match before acting.
+export function titleMatchesQuery(title: string, query: string): boolean {
+  const t = normTitle(title);
+  const q = normTitle(query);
+  if (!t || !q) return false;
+  if (t.includes(q) || q.includes(t)) return true;
+  const qTokens = q.split(" ").filter(Boolean);
+  const tTokens = t.split(" ").filter(Boolean);
+  if (qTokens.length === 0) return false;
+  return qTokens.every((qt) => tTokens.some((tt) => tokensMatch(qt, tt)));
+}
+
 export async function handleJoin(
   db: Firestore,
   uid: string,
@@ -1013,11 +1063,7 @@ export async function handleJoin(
   } else {
     // 2. Title match against scheduled future events — someone typed the name.
     const events = await getUpcomingEvents(db);
-    const q = arg.toLowerCase();
-    const matches = events.filter(
-      (e) =>
-        e.title.toLowerCase().includes(q) || q.includes(e.title.toLowerCase())
-    );
+    const matches = events.filter((e) => titleMatchesQuery(e.title, arg));
     if (matches.length === 1) {
       eventId = matches[0].id;
       title = matches[0].title;
@@ -1118,14 +1164,11 @@ async function buildMyRsvpsReply(
     });
   }
   rows.sort((a, b) => a.ms - b.ms);
-  // Asked about one specific event — narrow to it (same fuzzy match as
-  // cancel/edit: either title contains the query or vice-versa).
-  const q = eventName.trim().toLowerCase();
+  // Asked about one specific event — narrow to it with the same tolerant matcher
+  // the join path uses (punctuation-blind substring + small-typo tokens).
+  const q = eventName.trim();
   if (q) {
-    const hit = rows.filter((r) => {
-      const t = r.title.toLowerCase();
-      return t.includes(q) || q.includes(t);
-    });
+    const hit = rows.filter((r) => titleMatchesQuery(r.title, q));
     if (hit.length === 0) return msg(lang).rsvpStatusNotFor(eventName.trim());
     return msg(lang).rsvpStatusList(
       hit.map((r) => (r.when ? `${r.title} · ${r.when}` : r.title))
