@@ -211,6 +211,7 @@ export interface Bundle {
   // event auto-gets a tribe they own; the invite link is shared with attendees.
   tribeReady: (link: string) => string;
   otUsernamePrompt: string;
+  otUsernameConfirm: (handle: string) => string;
   otUsernameNotFound: string;
   otUsernameSkipped: string;
   otUsernameError: string;
@@ -328,6 +329,9 @@ const EN: Bundle = {
   otUsernamePrompt:
     "One more thing — what's your Online Tribes username? I'll spin up a group chat for this event that you'll own. " +
     "No account yet? Grab one at online-tribes.com, then reply your username. (Or reply skip.)",
+  otUsernameConfirm: (handle) =>
+    `I'll set up the group under Online Tribes handle "@${handle}" — and it'll be owned by that account. ` +
+    `Reply yes to confirm, send a different handle, or reply skip.`,
   otUsernameNotFound:
     "Couldn't find that Online Tribes username. Double-check it (or sign up at online-tribes.com) and reply it again — or reply skip to add the group later.",
   otUsernameSkipped:
@@ -471,6 +475,9 @@ const FR: Bundle = {
   otUsernamePrompt:
     "Dernière chose — quel est ton nom d'utilisateur Online Tribes ? Je crée un groupe de discussion pour cet événement, dont tu seras propriétaire. " +
     "Pas encore de compte ? Inscris-toi sur online-tribes.com, puis réponds ton nom d'utilisateur. (Ou réponds skip.)",
+  otUsernameConfirm: (handle) =>
+    `Je crée le groupe sous le compte Online Tribes « @${handle} » — c'est ce compte qui en sera propriétaire. ` +
+    `Réponds oui pour confirmer, envoie un autre identifiant, ou réponds skip.`,
   otUsernameNotFound:
     "Nom d'utilisateur Online Tribes introuvable. Vérifie-le (ou inscris-toi sur online-tribes.com) et renvoie-le — ou réponds skip pour ajouter le groupe plus tard.",
   otUsernameSkipped:

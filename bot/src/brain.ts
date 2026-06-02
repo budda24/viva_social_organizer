@@ -91,6 +91,10 @@ interface AwaitingOtUsernameState {
   eventId: string;
   startedAt: Timestamp;
   attempts?: number;
+  // A handle the host gave that we've echoed back for confirmation but not yet
+  // used — guards against a mistyped/garbage handle silently creating a tribe
+  // owned by a stranger whose username happens to match.
+  pendingUsername?: string;
 }
 
 interface ConvoState {
@@ -1471,7 +1475,8 @@ export async function processMessage(deps: ProcessMessageDeps): Promise<void> {
   // asked for their OT username to spin up the group tribe (owned by them). The
   // next message is the username; `skip`/`cancel` bails (event stays, no group).
   if (convoState.awaitingOtUsername) {
-    const eventId = convoState.awaitingOtUsername.eventId;
+    const st = convoState.awaitingOtUsername;
+    const eventId = st.eventId;
     if (/^(cancel|nvm|skip|abort|annuler|annule|laisse tomber|passe|later|plus tard)$/i.test(body)) {
       await setAwaitingOtUsername(db, uid, null);
       const reply = msg(lang).otUsernameSkipped;
@@ -1483,21 +1488,64 @@ export async function processMessage(deps: ProcessMessageDeps): Promise<void> {
       await inboxDoc.ref.update({ intent: "ot_username_skipped" });
       return;
     }
-    // Don't trap the host: if they fired a real command, or the message clearly
-    // isn't a username ("tell me the 3 members", "I'm free", "hello there"),
-    // drop the username prompt and let normal routing handle the message — the
-    // group can be added later. Only username-shaped input is treated as an
-    // answer (parsed out of natural phrasing like "my username is X").
-    const username = extractOtUsername(body);
-    if (isKnownIntent(body) || !username) {
+
+    // Decide which handle to actually create the tribe under THIS turn. We never
+    // create straight off a typed handle — we echo it back for confirmation
+    // first (a mistyped/garbage handle like "Hello" can match a stranger's OT
+    // account and hand them the group). Only a "yes" on the echoed handle uses it.
+    let usernameToCreate: string | null = null;
+    if (st.pendingUsername && isYes(body)) {
+      usernameToCreate = st.pendingUsername;
+    } else if (st.pendingUsername && isNo(body)) {
       await setAwaitingOtUsername(db, uid, null);
-      // fall through to the normal command/Claude routing below.
+      const reply = msg(lang).otUsernameSkipped;
+      await writeOutbox(db, { provider, uid, phone, chatId, body: reply, type: "ot_username_skip" });
+      await appendTurns(db, uid, [
+        { role: "user", content: body, at: Timestamp.now() },
+        { role: "assistant", content: reply, at: Timestamp.now() },
+      ]);
+      await inboxDoc.ref.update({ intent: "ot_username_skipped" });
+      return;
+    }
+
+    if (!usernameToCreate) {
+      // Treat the message as a (new) candidate handle. If it's a real command or
+      // clearly not a username, drop the prompt and let normal routing handle it.
+      const candidate = extractOtUsername(body);
+      if (isKnownIntent(body) || !candidate) {
+        await setAwaitingOtUsername(db, uid, null);
+        // fall through to normal command/Claude routing below.
+      } else {
+        // Echo it back for confirmation before creating anything.
+        await db.doc(`conversationStates/${uid}`).set(
+          {
+            uid,
+            awaitingOtUsername: {
+              eventId,
+              startedAt: st.startedAt,
+              attempts: st.attempts ?? 0,
+              pendingUsername: candidate,
+            },
+            updatedAt: FieldValue.serverTimestamp(),
+          },
+          { merge: true }
+        );
+        const reply = msg(lang).otUsernameConfirm(candidate);
+        await writeOutbox(db, { provider, uid, phone, chatId, body: reply, type: "ot_username_confirm" });
+        await appendTurns(db, uid, [
+          { role: "user", content: body, at: Timestamp.now() },
+          { role: "assistant", content: reply, at: Timestamp.now() },
+        ]);
+        await inboxDoc.ref.update({ intent: "ot_username_confirm" });
+        return;
+      }
     } else {
+      // Confirmed → create the tribe under the confirmed handle.
+      const username = usernameToCreate;
       const evSnap = await db.doc(`events/${eventId}`).get();
       let reply: string;
       let intent: string;
       if (!evSnap.exists || evSnap.data()?.status !== "scheduled") {
-        // Event vanished (cancelled/expired) before they answered — drop the prompt.
         await setAwaitingOtUsername(db, uid, null);
         reply = msg(lang).otUsernameSkipped;
         intent = "ot_username_eventgone";
@@ -1515,9 +1563,8 @@ export async function processMessage(deps: ProcessMessageDeps): Promise<void> {
           reply = msg(lang).tribeReady(tribe.inviteLink);
           intent = "ot_username_set";
         } else if (tribe.reason === "username_not_found") {
-          // Retry once, then give up gracefully so we never loop the host on a
-          // username they can't get right (or that doesn't exist in OT yet).
-          const attempts = (convoState.awaitingOtUsername.attempts ?? 0) + 1;
+          // Drop the rejected handle and ask afresh; retry once, then give up.
+          const attempts = (st.attempts ?? 0) + 1;
           if (attempts >= 2) {
             await setAwaitingOtUsername(db, uid, null);
             reply = msg(lang).otUsernameSkipped;
@@ -1526,7 +1573,7 @@ export async function processMessage(deps: ProcessMessageDeps): Promise<void> {
             await db.doc(`conversationStates/${uid}`).set(
               {
                 uid,
-                awaitingOtUsername: { eventId, startedAt: convoState.awaitingOtUsername.startedAt, attempts },
+                awaitingOtUsername: { eventId, startedAt: st.startedAt, attempts },
                 updatedAt: FieldValue.serverTimestamp(),
               },
               { merge: true }
@@ -1535,7 +1582,6 @@ export async function processMessage(deps: ProcessMessageDeps): Promise<void> {
             intent = "ot_username_notfound";
           }
         } else {
-          // not_configured / transient error — don't loop the host.
           await setAwaitingOtUsername(db, uid, null);
           reply = msg(lang).otUsernameError;
           intent = "ot_username_error";
