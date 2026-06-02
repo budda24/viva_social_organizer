@@ -25,6 +25,50 @@ export function isOnlineTribesConfigured(): boolean {
   return !!process.env.OT_TRIBE_ENDPOINT_URL && !!process.env.OT_TRIBE_SECRET;
 }
 
+export type ResolveOwnerResult =
+  | { ok: true; ownerUsername: string; ownerName: string }
+  | { ok: false; reason: "username_not_found" | "not_configured" | "error" };
+
+/**
+ * Resolve an OT username to its owner WITHOUT creating a tribe (resolveOnly).
+ * Lets the bot confirm "Found @X (Name) — that you?" before committing, so a
+ * mistyped handle that matches a stranger never silently gets the group.
+ */
+export async function resolveOtOwner(username: string): Promise<ResolveOwnerResult> {
+  const url = process.env.OT_TRIBE_ENDPOINT_URL;
+  const secret = process.env.OT_TRIBE_SECRET;
+  if (!url || !secret) return { ok: false, reason: "not_configured" };
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
+  try {
+    const res = await fetch(url, {
+      method: "POST",
+      headers: { "content-type": "application/json", authorization: `Bearer ${secret}` },
+      // `name` is required by the shared payload shape but unused for resolveOnly.
+      body: JSON.stringify({ ownerUsername: username, name: "resolve", resolveOnly: true }),
+      signal: controller.signal,
+    });
+    if (res.status === 404) return { ok: false, reason: "username_not_found" };
+    if (!res.ok) {
+      const text = await res.text().catch(() => "");
+      console.error(`[online-tribes] resolveOnly ${res.status}: ${text.slice(0, 200)}`);
+      return { ok: false, reason: "error" };
+    }
+    const json = (await res.json()) as { ownerUsername?: string; ownerName?: string };
+    if (!json.ownerUsername) {
+      // Endpoint not yet upgraded to support resolveOnly — caller falls back.
+      return { ok: false, reason: "error" };
+    }
+    return { ok: true, ownerUsername: json.ownerUsername, ownerName: json.ownerName || json.ownerUsername };
+  } catch (e) {
+    console.error(`[online-tribes] resolveOnly failed: ${e instanceof Error ? e.message : String(e)}`);
+    return { ok: false, reason: "error" };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 export async function createTribeForHost(args: {
   ownerUsername: string;
   name: string;

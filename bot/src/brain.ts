@@ -34,7 +34,7 @@ import {
   type PendingAction,
   type PendingIntroRequest,
 } from "./actions.js";
-import { createTribeForHost } from "./online-tribes.js";
+import { createTribeForHost, resolveOtOwner } from "./online-tribes.js";
 import {
   claudeLanguageDirective,
   isAffirmative,
@@ -616,6 +616,7 @@ interface UpcomingEvent {
   startAtMs: number;
   addressNeighborhood: string;
   addressFull: string;
+  hostUid: string;
   hostName: string;
   description: string;
 }
@@ -639,6 +640,7 @@ async function loadUpcomingEvents(db: Firestore): Promise<UpcomingEvent[]> {
         startAtMs,
         addressNeighborhood: String(e.addressNeighborhood ?? ""),
         addressFull: String(e.addressFull ?? ""),
+        hostUid: String(e.hostUid ?? ""),
         hostName: String(e.hostName ?? ""),
         description: String(e.description ?? ""),
       };
@@ -993,9 +995,11 @@ async function handleJoin(
   const byId = await db.doc(`events/${arg}`).get();
   let eventId: string | undefined;
   let title: string | undefined;
+  let hostUid: string | undefined;
   if (byId.exists && byId.data()?.status === "scheduled") {
     eventId = byId.id;
     title = String(byId.data()?.title ?? "");
+    hostUid = String(byId.data()?.hostUid ?? "");
   } else {
     // 2. Title match against scheduled future events — someone typed the name.
     const events = await getUpcomingEvents(db);
@@ -1007,11 +1011,18 @@ async function handleJoin(
     if (matches.length === 1) {
       eventId = matches[0].id;
       title = matches[0].title;
+      hostUid = matches[0].hostUid;
     } else if (matches.length === 0) {
       return { reply: msg(lang).rsvpNotFound, joined: false };
     } else {
       return { reply: msg(lang).rsvpAmbiguous, joined: false };
     }
+  }
+
+  // You can't RSVP to an event you host — you're auto-RSVP'd on create. Catches
+  // the typed `join <title>` path and any stale Join button for an own event.
+  if (hostUid && hostUid === uid) {
+    return { reply: msg(lang).rsvpOwnEvent(title || "the event"), joined: false };
   }
 
   await db
@@ -1231,6 +1242,7 @@ async function buildMyEventsReply(
 const WHATS_ON_MAX = 8;
 async function buildWhatsOnReply(
   db: Firestore,
+  uid: string,
   lang: Lang
 ): Promise<{ body: string; telegramBody: string; buttons?: OutboxButton[] }> {
   const events = (await getUpcomingEvents(db)).slice(0, WHATS_ON_MAX);
@@ -1246,8 +1258,15 @@ async function buildWhatsOnReply(
     const meta = [when, e.addressNeighborhood].filter(Boolean).join(" · ");
     const live = e.startAtMs > 0 && e.startAtMs <= nowMs;
     const tag = live ? (lang === "fr" ? "🔴 en cours · " : "🔴 now · ") : "";
-    lines.push(`- ${tag}${e.title}${meta ? ` · ${meta}` : ""}`);
-    buttons.push({ text: `${msg(lang).btn.join} ${e.title}`.slice(0, 60), data: `join ${e.id}` });
+    // You can't join an event you host — you're already in as the host. Tag the
+    // line and skip its Join button (the screenshot bug where "Join Drink Night"
+    // showed up for the host of Drink Night).
+    const youHost = e.hostUid === uid;
+    const hostTag = youHost ? (lang === "fr" ? " · (tu organises)" : " · (you host)") : "";
+    lines.push(`- ${tag}${e.title}${meta ? ` · ${meta}` : ""}${hostTag}`);
+    if (!youHost) {
+      buttons.push({ text: `${msg(lang).btn.join} ${e.title}`.slice(0, 60), data: `join ${e.id}` });
+    }
   }
   const list = lines.join("\n");
   return { body: `${list}\n${msg(lang).whatsOnHint}`, telegramBody: list, buttons };
@@ -1516,27 +1535,73 @@ export async function processMessage(deps: ProcessMessageDeps): Promise<void> {
         await setAwaitingOtUsername(db, uid, null);
         // fall through to normal command/Claude routing below.
       } else {
-        // Echo it back for confirmation before creating anything.
-        await db.doc(`conversationStates/${uid}`).set(
-          {
-            uid,
-            awaitingOtUsername: {
-              eventId,
-              startedAt: st.startedAt,
-              attempts: st.attempts ?? 0,
-              pendingUsername: candidate,
+        // Resolve the handle to its real OT owner FIRST, then confirm by name —
+        // so a handle that matches a stranger ("Hello") is caught before the
+        // group is created. We persist the canonical username the endpoint
+        // returns, not the raw input.
+        const resolved = await resolveOtOwner(candidate);
+        let reply: string;
+        let intent: string;
+        if (resolved.ok) {
+          await db.doc(`conversationStates/${uid}`).set(
+            {
+              uid,
+              awaitingOtUsername: {
+                eventId,
+                startedAt: st.startedAt,
+                attempts: st.attempts ?? 0,
+                pendingUsername: resolved.ownerUsername,
+              },
+              updatedAt: FieldValue.serverTimestamp(),
             },
-            updatedAt: FieldValue.serverTimestamp(),
-          },
-          { merge: true }
-        );
-        const reply = msg(lang).otUsernameConfirm(candidate);
+            { merge: true }
+          );
+          reply = msg(lang).otUsernameConfirm(resolved.ownerUsername, resolved.ownerName);
+          intent = "ot_username_confirm";
+        } else if (resolved.reason === "username_not_found") {
+          // Unknown handle — retry once, then give up gracefully.
+          const attempts = (st.attempts ?? 0) + 1;
+          if (attempts >= 2) {
+            await setAwaitingOtUsername(db, uid, null);
+            reply = msg(lang).otUsernameSkipped;
+            intent = "ot_username_giveup";
+          } else {
+            await db.doc(`conversationStates/${uid}`).set(
+              {
+                uid,
+                awaitingOtUsername: { eventId, startedAt: st.startedAt, attempts },
+                updatedAt: FieldValue.serverTimestamp(),
+              },
+              { merge: true }
+            );
+            reply = msg(lang).otUsernameNotFound;
+            intent = "ot_username_notfound";
+          }
+        } else {
+          // Endpoint down / not configured — fall back to confirming the raw
+          // handle (no name) so the flow still works.
+          await db.doc(`conversationStates/${uid}`).set(
+            {
+              uid,
+              awaitingOtUsername: {
+                eventId,
+                startedAt: st.startedAt,
+                attempts: st.attempts ?? 0,
+                pendingUsername: candidate,
+              },
+              updatedAt: FieldValue.serverTimestamp(),
+            },
+            { merge: true }
+          );
+          reply = msg(lang).otUsernameConfirm(candidate, candidate);
+          intent = "ot_username_confirm";
+        }
         await writeOutbox(db, { provider, uid, phone, chatId, body: reply, type: "ot_username_confirm" });
         await appendTurns(db, uid, [
           { role: "user", content: body, at: Timestamp.now() },
           { role: "assistant", content: reply, at: Timestamp.now() },
         ]);
-        await inboxDoc.ref.update({ intent: "ot_username_confirm" });
+        await inboxDoc.ref.update({ intent });
         return;
       }
     } else {
@@ -1685,7 +1750,7 @@ export async function processMessage(deps: ProcessMessageDeps): Promise<void> {
   // so the French "événement à venir" lands as a list, but deferring to an
   // explicit create command so its description can still mention list words.
   if (LIST_EVENTS_RE.test(body) && !EXPLICIT_CREATE_RE.test(body)) {
-    const r = await buildWhatsOnReply(db, lang);
+    const r = await buildWhatsOnReply(db, uid, lang);
     await writeOutbox(db, {
       provider,
       uid,

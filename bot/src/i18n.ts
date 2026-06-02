@@ -180,6 +180,8 @@ export interface Bundle {
   ) => string;
   rsvpNotFound: string;
   rsvpAmbiguous: string;
+  // Someone tried to RSVP to an event they host — they're already in as the host.
+  rsvpOwnEvent: (title: string) => string;
   // RSVP status query — "have I signed in?", "am I in?", "which events am I
   // going to?". Answered concisely instead of dumping the full what's-on list.
   rsvpStatusList: (lines: string[]) => string;
@@ -211,7 +213,7 @@ export interface Bundle {
   // event auto-gets a tribe they own; the invite link is shared with attendees.
   tribeReady: (link: string) => string;
   otUsernamePrompt: string;
-  otUsernameConfirm: (handle: string) => string;
+  otUsernameConfirm: (handle: string, name: string) => string;
   otUsernameNotFound: string;
   otUsernameSkipped: string;
   otUsernameError: string;
@@ -273,6 +275,8 @@ const EN: Bundle = {
     'Couldn\'t find that event. Reply "what\'s on" to see what\'s scheduled.',
   rsvpAmbiguous:
     'More than one event matches — reply "what\'s on" and use the exact title.',
+  rsvpOwnEvent: (title) =>
+    `You're hosting "${title}" — you're already in. Reply \`my events\` to edit or cancel it.`,
   rsvpStatusList: (lines) =>
     `✅ Yes — you're signed in for:\n${lines.map((l) => `• ${l}`).join("\n")}`,
   rsvpStatusNone:
@@ -329,9 +333,9 @@ const EN: Bundle = {
   otUsernamePrompt:
     "One more thing — what's your Online Tribes username? I'll spin up a group chat for this event that you'll own. " +
     "No account yet? Create one at https://online-tribes.com, then come back and reply your username. (Or reply skip.)",
-  otUsernameConfirm: (handle) =>
-    `I'll set up the group under Online Tribes handle "@${handle}" — and it'll be owned by that account. ` +
-    `Reply yes to confirm, send a different handle, or reply skip.`,
+  otUsernameConfirm: (handle, name) =>
+    `Found Online Tribes user @${handle}${name && name !== handle ? ` (${name})` : ""}. ` +
+    `Set up the group owned by this account? Reply yes, send a different username, or skip.`,
   otUsernameNotFound:
     "Couldn't find that Online Tribes username. Double-check it (or sign up at online-tribes.com) and reply it again — or reply skip to add the group later.",
   otUsernameSkipped:
@@ -418,6 +422,8 @@ const FR: Bundle = {
     "Événement introuvable. Réponds « quoi de prévu » pour voir l'agenda.",
   rsvpAmbiguous:
     "Plusieurs événements correspondent — réponds « quoi de prévu » et utilise le titre exact.",
+  rsvpOwnEvent: (title) =>
+    `Tu organises « ${title} » — tu es déjà inscrit. Réponds \`mes événements\` pour le modifier ou l'annuler.`,
   rsvpStatusList: (lines) =>
     `✅ Oui — tu es inscrit à :\n${lines.map((l) => `• ${l}`).join("\n")}`,
   rsvpStatusNone:
@@ -475,9 +481,9 @@ const FR: Bundle = {
   otUsernamePrompt:
     "Dernière chose — quel est ton nom d'utilisateur Online Tribes ? Je crée un groupe de discussion pour cet événement, dont tu seras propriétaire. " +
     "Pas encore de compte ? Crée-en un sur https://online-tribes.com, puis reviens répondre ton nom d'utilisateur. (Ou réponds skip.)",
-  otUsernameConfirm: (handle) =>
-    `Je crée le groupe sous le compte Online Tribes « @${handle} » — c'est ce compte qui en sera propriétaire. ` +
-    `Réponds oui pour confirmer, envoie un autre identifiant, ou réponds skip.`,
+  otUsernameConfirm: (handle, name) =>
+    `Utilisateur Online Tribes trouvé : @${handle}${name && name !== handle ? ` (${name})` : ""}. ` +
+    `Créer le groupe sous ce compte ? Réponds oui, envoie un autre identifiant, ou réponds skip.`,
   otUsernameNotFound:
     "Nom d'utilisateur Online Tribes introuvable. Vérifie-le (ou inscris-toi sur online-tribes.com) et renvoie-le — ou réponds skip pour ajouter le groupe plus tard.",
   otUsernameSkipped:
