@@ -29,6 +29,19 @@ import {
   tribeIdFromLink,
 } from "./online-tribes.js";
 
+// An event with no explicit end is treated as "ongoing" for this long after its
+// start (mirrors the what's-on window in brain.ts). A host can't cancel an event
+// once it's underway — only before it starts.
+export const ONGOING_WINDOW_MS = Number(
+  process.env.ONGOING_WINDOW_MS ?? 3 * 60 * 60 * 1000
+);
+
+// True when `startAtMs` is in the past but still within the ongoing window — i.e.
+// the event is happening right now. Past-and-ended or future events are not.
+export function isEventOngoing(startAtMs: number, nowMs: number): boolean {
+  return startAtMs > 0 && startAtMs <= nowMs && nowMs < startAtMs + ONGOING_WINDOW_MS;
+}
+
 const KIND_ENUM = [
   "breakfast",
   "coffee",
@@ -535,6 +548,15 @@ async function executeCancelEvent(
   const title = String(ev.title ?? action.title ?? "");
   if (ev.status === "cancelled") {
     return { reply: msg(lang).eventAlreadyCancelled(title) };
+  }
+  // Re-check at execution time: the event may have started between the host
+  // requesting the cancel and confirming `yes`. An event that's underway can't
+  // be cancelled — attendees are already showing up.
+  const startAt = ev.startAt;
+  const startAtMs =
+    startAt && typeof startAt.toMillis === "function" ? startAt.toMillis() : 0;
+  if (isEventOngoing(startAtMs, Date.now())) {
+    return { reply: msg(lang).cantCancelOngoing(title) };
   }
 
   await ref.set(

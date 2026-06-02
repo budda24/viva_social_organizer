@@ -29,6 +29,8 @@ import {
   declineIntroRequest,
   describePendingAction,
   executePendingAction,
+  isEventOngoing,
+  ONGOING_WINDOW_MS,
   parseActionMarker,
   type OutboxButton,
   type PendingAction,
@@ -655,10 +657,10 @@ async function loadUpcomingEvents(db: Firestore): Promise<UpcomingEvent[]> {
 // In-process events cache — same stale-while-revalidate + single-flight pattern
 // as the member directory, so a burst of messages triggers one Firestore read.
 const EVENTS_TTL_MS = Number(process.env.EVENTS_TTL_MS ?? 30_000);
-// An event with no explicit end is treated as "happening now" for this long
-// after its start, so a currently-running event still shows in what's-on
-// instead of vanishing the moment it begins.
-const ONGOING_WINDOW_MS = Number(process.env.ONGOING_WINDOW_MS ?? 3 * 60 * 60 * 1000);
+// ONGOING_WINDOW_MS (imported from actions): an event with no explicit end is
+// treated as "happening now" for this long after its start, so a currently-
+// running event still shows in what's-on instead of vanishing the moment it
+// begins — and can no longer be cancelled.
 let eventsCache: { events: UpcomingEvent[]; loadedAt: number } | null = null;
 let eventsInflight: Promise<UpcomingEvent[]> | null = null;
 
@@ -953,6 +955,11 @@ async function writeOutbox(
     // the WhatsApp/fallback text (keeps its inline "Reply …" CTA).
     buttons?: OutboxButton[];
     telegramBody?: string;
+    // Telegram-only: mark a Yes/No confirmation keyboard as ephemeral so the
+    // sender clears it once the next message supersedes it. Without this, a
+    // confirmation answered by TYPING (not tapping) leaves the stale buttons
+    // tappable — the webhook only clears a keyboard on an actual tap.
+    ephemeralKeyboard?: boolean;
   }
 ): Promise<void> {
   const isTelegram = args.provider === "telegram";
@@ -971,7 +978,10 @@ async function writeOutbox(
   };
   if (args.provider === "twilio" && args.phone) row.recipientPhone = args.phone;
   if (args.provider === "telegram" && args.chatId !== undefined) row.recipientChatId = args.chatId;
-  if (isTelegram && args.buttons && args.buttons.length > 0) row.buttons = args.buttons;
+  if (isTelegram && args.buttons && args.buttons.length > 0) {
+    row.buttons = args.buttons;
+    if (args.ephemeralKeyboard) row.ephemeralKeyboard = true;
+  }
   await db.collection("whatsappOutbox").add(row);
 }
 
@@ -1060,9 +1070,31 @@ export async function handleJoin(
 const RSVP_STATUS_RE =
   /\b(?:have|did)\s+i\s+(?:sign(?:ed)?\s*in|join(?:ed)?|rsvp(?:'?d|ed)?)\b|\bam\s+i\s+(?:signed\s*in|in\b|going|attending|registered)|\bwhich\s+events?\s+am\s+i\b|\bmy\s+rsvps?\b|\bsuis-je\s+inscrit|\bje\s+suis\s+inscrit\b/i;
 
+// When the user names ONE specific event in their status question — "have I
+// signed in for Drink Night?", "am I going to the rooftop?" — capture that name
+// so we answer about that event alone instead of dumping every RSVP (tester #4
+// follow-up). The list-all variants ("which events am I in?", "my rsvps") carry
+// no trailing name, so the capture group comes back empty and we list them all.
+const RSVP_STATUS_EVENT_RE =
+  /\b(?:(?:have|did)\s+i\s+(?:sign(?:ed)?\s*in|join(?:ed)?|rsvp(?:'?d|ed)?)|am\s+i\s+(?:signed\s*in|in|going|attending|registered)|suis-je\s+inscrit|je\s+suis\s+inscrit)\b\s+(?:(?:in|for|to|at|on|the|le|la|les|au|aux|pour|[àa]|l['’])\s+)*(.+)$/i;
+
+// Pull the named-event fragment from an RSVP-status question, or "" if none.
+export function extractRsvpEventName(body: string): string {
+  const m = body.match(RSVP_STATUS_EVENT_RE);
+  if (!m) return "";
+  return m[1].replace(/[?!.\s]+$/g, "").trim();
+}
+
 // List the events the caller has RSVP'd to (status "going"), soonest first.
 // Uses a collection-group query over events/*/rsvps so it's a single read.
-async function buildMyRsvpsReply(db: Firestore, uid: string, lang: Lang): Promise<string> {
+// When `eventName` is given, answer about just that one event: confirm if the
+// caller is signed in for it, else say they aren't (rather than listing others).
+async function buildMyRsvpsReply(
+  db: Firestore,
+  uid: string,
+  lang: Lang,
+  eventName = ""
+): Promise<string> {
   const snap = await db
     .collectionGroup("rsvps")
     .where("uid", "==", uid)
@@ -1085,8 +1117,21 @@ async function buildMyRsvpsReply(db: Firestore, uid: string, lang: Lang): Promis
       ms: ms || Number.MAX_SAFE_INTEGER,
     });
   }
-  if (rows.length === 0) return msg(lang).rsvpStatusNone;
   rows.sort((a, b) => a.ms - b.ms);
+  // Asked about one specific event — narrow to it (same fuzzy match as
+  // cancel/edit: either title contains the query or vice-versa).
+  const q = eventName.trim().toLowerCase();
+  if (q) {
+    const hit = rows.filter((r) => {
+      const t = r.title.toLowerCase();
+      return t.includes(q) || q.includes(t);
+    });
+    if (hit.length === 0) return msg(lang).rsvpStatusNotFor(eventName.trim());
+    return msg(lang).rsvpStatusList(
+      hit.map((r) => (r.when ? `${r.title} · ${r.when}` : r.title))
+    );
+  }
+  if (rows.length === 0) return msg(lang).rsvpStatusNone;
   return msg(lang).rsvpStatusList(
     rows.map((r) => (r.when ? `${r.title} · ${r.when}` : r.title))
   );
@@ -1106,10 +1151,20 @@ const MY_EVENTS_RE = /^\s*\/?(?:my\s+events?|mes\s+[ée]v[ée]nements?)\s*$/i;
 // "have I created … event") so it never swallows the "create event" command.
 const MY_EVENTS_QUERY_RE =
   /\bmy\s+events?\b|\bmes\s+[ée]v[ée]nements?\b|\bevents?\s+(?:that\s+|did\s+|have\s+)?i(?:'m|’m| am)?\s+(?:create|created|host(?:ed|ing)?|made|make|own|organi[sz]ed?)\b|\b(?:what|which)\s+events?\s+(?:am|have|did)\s+i\s+(?:create|created|host(?:ed|ing)?|made|make|own|organi[sz]ed?)\b|\b(?:have|did)\s+i\s+(?:create|created|make|made|host|hosted|organi[sz]ed?)\b[^?]*?\bevents?\b/i;
-const CANCEL_EVENT_CMD_RE =
-  /^\s*\/?(?:cancel|delete|annuler|supprimer)[\s_-]?(?:event|[ée]v[ée]nement)\b[:\s-]*(.*)$/i;
-const EDIT_EVENT_CMD_RE =
-  /^\s*\/?(?:edit|modifier|changer)[\s_-]?(?:event|[ée]v[ée]nement)\b[:\s-]*(.*)$/i;
+// Verb + "event" + optional title. The `(?:…)?` determiner group tolerates a
+// natural article between the two — "delete THE event chill session", "cancel MY
+// event Drinks", "annuler L'événement X" — which otherwise fell through to Claude
+// and got a hallucinated "cancelled!" reply with no actual write. `[\s_-]*` (not
+// `?`) still accepts the button/slash forms ("cancelevent", "cancel_event").
+const DETERMINER = "(?:(?:the|my|this|that|an?|le|la|les|mon|ma|mes|cet|cette)\\s+|l['’]\\s*)?";
+const CANCEL_EVENT_CMD_RE = new RegExp(
+  `^\\s*/?(?:cancel|delete|remove|annuler|supprimer)[\\s_-]*${DETERMINER}(?:event|[ée]v[ée]nement)\\b[:\\s-]*(.*)$`,
+  "i"
+);
+const EDIT_EVENT_CMD_RE = new RegExp(
+  `^\\s*/?(?:edit|update|change|modifier|changer)[\\s_-]*${DETERMINER}(?:event|[ée]v[ée]nement)\\b[:\\s-]*(.*)$`,
+  "i"
+);
 const CANCELEVT_BTN_RE = /^\s*cancelevt\s+(\S+)\s*$/i;
 const EDITEVT_BTN_RE = /^\s*editevt\s+(\S+)\s*$/i;
 
@@ -1684,7 +1739,7 @@ export async function processMessage(deps: ProcessMessageDeps): Promise<void> {
   // going to?". Answered from the caller's own RSVPs, before the what's-on /
   // my-events listings so it isn't swallowed by either.
   if (RSVP_STATUS_RE.test(body)) {
-    const reply = await buildMyRsvpsReply(db, uid, lang);
+    const reply = await buildMyRsvpsReply(db, uid, lang, extractRsvpEventName(body));
     await writeOutbox(db, { provider, uid, phone, chatId, body: reply, type: "rsvp_status" });
     await appendTurns(db, uid, [
       { role: "user", content: body, at: Timestamp.now() },
@@ -1782,19 +1837,27 @@ export async function processMessage(deps: ProcessMessageDeps): Promise<void> {
       reply = ownedEventMissReply(res.reason, lang);
     } else {
       const title = String(res.event.data.title ?? "");
-      const rsvps = await db
-        .collection("events")
-        .doc(res.event.id)
-        .collection("rsvps")
-        .where("status", "==", "going")
-        .get();
-      const attendees = rsvps.docs.filter((d) => d.id !== uid).length;
-      await setPendingAction(db, uid, { kind: "cancel_event", eventId: res.event.id, title });
-      reply = msg(lang).cancelConfirm(title, attendees);
-      buttons = [
-        { text: msg(lang).btn.yesCancel, data: "yes" },
-        { text: msg(lang).btn.no, data: "no" },
-      ];
+      const startAt = res.event.data.startAt as Timestamp | undefined;
+      const startAtMs =
+        startAt && typeof startAt.toMillis === "function" ? startAt.toMillis() : 0;
+      if (isEventOngoing(startAtMs, Date.now())) {
+        // Event is underway — refuse, and don't stage a cancel for confirmation.
+        reply = msg(lang).cantCancelOngoing(title);
+      } else {
+        const rsvps = await db
+          .collection("events")
+          .doc(res.event.id)
+          .collection("rsvps")
+          .where("status", "==", "going")
+          .get();
+        const attendees = rsvps.docs.filter((d) => d.id !== uid).length;
+        await setPendingAction(db, uid, { kind: "cancel_event", eventId: res.event.id, title });
+        reply = msg(lang).cancelConfirm(title, attendees);
+        buttons = [
+          { text: msg(lang).btn.yesCancel, data: "yes" },
+          { text: msg(lang).btn.no, data: "no" },
+        ];
+      }
     }
     await writeOutbox(db, {
       provider,
@@ -1804,6 +1867,7 @@ export async function processMessage(deps: ProcessMessageDeps): Promise<void> {
       body: reply,
       telegramBody: buttons ? stripYesCta(reply) : undefined,
       buttons,
+      ephemeralKeyboard: !!buttons,
       type: "cancel_confirm",
     });
     await appendTurns(db, uid, [
@@ -2091,6 +2155,7 @@ export async function processMessage(deps: ProcessMessageDeps): Promise<void> {
     body: reply,
     telegramBody,
     buttons,
+    ephemeralKeyboard: !!buttons,
     type: action ? "action_proposed" : "bot_reply",
   });
 

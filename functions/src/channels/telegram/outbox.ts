@@ -44,6 +44,23 @@ function buildInlineKeyboard(
 }
 
 /**
+ * Clear the inline keyboard from a message (passing no reply_markup removes it).
+ * Best-effort: Telegram replies 400 ("message is not modified" / "message to
+ * edit not found") if it was already cleared, deleted, or never had a keyboard —
+ * all harmless here, so callers ignore the throw.
+ */
+async function clearKeyboard(chatId: number | string, messageId: number, token: string): Promise<void> {
+  const res = await fetch(`https://api.telegram.org/bot${token}/editMessageReplyMarkup`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ chat_id: chatId, message_id: messageId }),
+  });
+  if (!res.ok) {
+    throw new Error(`telegram ${res.status}: ${(await res.text()).slice(0, 200)}`);
+  }
+}
+
+/**
  * Send outbox rows tagged provider=telegram via the Telegram Bot API.
  * Fires on creation of whatsappOutbox/{messageId} rows. Mirrors the Twilio
  * outbox listener — same row schema, different transport.
@@ -87,10 +104,25 @@ export const onTelegramOutboxCreated = onDocumentCreated(
     }
 
     const inlineKeyboard = buildInlineKeyboard(claimed.buttons);
+    const token = TELEGRAM_BOT_TOKEN.value();
+
+    // Keep only the latest ephemeral Yes/No keyboard tappable in this chat. A
+    // confirmation answered by typing (not tapping) never hits the webhook's
+    // tap-time clear, so its buttons linger and a later tap re-fires an action
+    // that's already resolved. Before sending anything, wipe the previously
+    // tracked ephemeral keyboard. Persistent keyboards (Join, Edit/Cancel,
+    // Connect/Pass, language) are never tracked here, so they survive untouched.
+    const kbStateRef = db.doc(`telegramKeyboardState/${chatId}`);
+    const prevKbId = (await kbStateRef.get()).data()?.messageId as number | undefined;
+    if (prevKbId) {
+      await clearKeyboard(chatId, prevKbId, token).catch((e) =>
+        console.warn(`[telegramOutbox] clear stale keyboard failed: ${e}`)
+      );
+    }
 
     try {
       const response = await fetch(
-        `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN.value()}/sendMessage`,
+        `https://api.telegram.org/bot${token}/sendMessage`,
         {
           method: "POST",
           headers: { "content-type": "application/json" },
@@ -111,6 +143,15 @@ export const onTelegramOutboxCreated = onDocumentCreated(
       }
       const result = (await response.json()) as { result?: { message_id?: number } };
       const providerMessageId = result.result?.message_id;
+
+      // Track this message's keyboard only if it's an ephemeral Yes/No
+      // confirmation, so the next outbound message clears it. Otherwise drop any
+      // tracked id — the chat now has no pending ephemeral keyboard to clean up.
+      if (claimed.ephemeralKeyboard && inlineKeyboard && providerMessageId) {
+        await kbStateRef.set({ messageId: providerMessageId, updatedAt: FieldValue.serverTimestamp() });
+      } else if (prevKbId) {
+        await kbStateRef.delete().catch(() => {});
+      }
 
       await ref.update({
         status: "sent",

@@ -76,8 +76,12 @@ export function isNoWord(text: string): boolean {
 // Claude, which re-proposed the action and re-showed the Yes/No buttons.
 // Matches a LEADING yes/no word (optionally followed by anything); a leading
 // no-word always wins so "ok no thanks" reads as a decline, not a confirm.
+// `create(?!\s+(?:a\b|an\b|new\b|another\b|event|[ée]v[ée]nement))` accepts the
+// English echo of the "✅ Yes, create it" button ("create it", "create", "create
+// now") while still letting "create event" / "create a new event" fall through
+// to the event-creation wizard rather than confirming a stale pending action.
 const YES_LEAD =
-  /^(?:yes|yep|yeah|yup|ok|okay|sure|confirm(?:ed)?|go|go ahead|do it|sounds good|please do|let'?s do it|oui|ouais|ouaip|ouip|d'?accord|daccord|vas-y|c'?est bon|parfait|crée|cree)\b/i;
+  /^(?:yes|yep|yeah|yup|ok|okay|sure|confirm(?:ed)?|go|go ahead|do it|sounds good|please do|let'?s do it|create(?!\s+(?:a\b|an\b|new\b|another\b|event|[ée]v[ée]nement))|oui|ouais|ouaip|ouip|d'?accord|daccord|vas-y|c'?est bon|parfait|crée|cree)\b/i;
 const NO_LEAD =
   /^(?:no|nope|nah|cancel|abort|don'?t|never ?mind|nvm|non|annule[rz]?|laisse tomber|nan|passe|pas maintenant)\b/i;
 
@@ -186,6 +190,8 @@ export interface Bundle {
   // going to?". Answered concisely instead of dumping the full what's-on list.
   rsvpStatusList: (lines: string[]) => string;
   rsvpStatusNone: string;
+  // RSVP status query naming ONE specific event the user is NOT signed in for.
+  rsvpStatusNotFor: (title: string) => string;
   // Owner event management — `my events`, edit/cancel flows, and the notices
   // sent to attendees when the host changes or calls off an event.
   myEventsHeader: string;
@@ -204,6 +210,8 @@ export interface Bundle {
   cancelConfirm: (title: string, attendees: number) => string;
   eventCancelled: (title: string, notified: number) => string;
   eventAlreadyCancelled: (title: string) => string;
+  // Host tried to cancel an event that's already underway — refused.
+  cantCancelOngoing: (title: string) => string;
   eventCancelledNotice: (title: string, hostName: string) => string;
   eventUpdated: (title: string, notified: number) => string;
   eventUpdatedNotice: (a: EventUpdateArgs) => string;
@@ -281,6 +289,8 @@ const EN: Bundle = {
     `✅ Yes — you're signed in for:\n${lines.map((l) => `• ${l}`).join("\n")}`,
   rsvpStatusNone:
     'Not yet — you haven\'t signed in for any event. Reply "what\'s on" to pick one.',
+  rsvpStatusNotFor: (title) =>
+    `Not yet — you're not signed in for "${title}". Reply "what's on" to find it.`,
   myEventsHeader: "Events you host:",
   myEventsEmpty:
     "You're not hosting any events yet. Reply `create event` to start one.",
@@ -307,6 +317,8 @@ const EN: Bundle = {
     (notified > 0 ? ` — notified ${notified} ${notified === 1 ? "person" : "people"}` : "") +
     ".",
   eventAlreadyCancelled: (title) => `"${title}" was already cancelled.`,
+  cantCancelOngoing: (title) =>
+    `"${title}" is already underway, so I can't cancel it now. You can still edit the details if something changed.`,
   eventCancelledNotice: (title, hostName) =>
     `Heads up — "${title}"${hostName ? ` (hosted by ${hostName})` : ""} has been cancelled. ✕`,
   eventUpdated: (title, notified) =>
@@ -428,6 +440,8 @@ const FR: Bundle = {
     `✅ Oui — tu es inscrit à :\n${lines.map((l) => `• ${l}`).join("\n")}`,
   rsvpStatusNone:
     "Pas encore — tu n'es inscrit à aucun événement. Réponds « quoi de prévu » pour en choisir un.",
+  rsvpStatusNotFor: (title) =>
+    `Pas encore — tu n'es pas inscrit à « ${title} ». Réponds « quoi de prévu » pour le trouver.`,
   myEventsHeader: "Les événements que tu organises :",
   myEventsEmpty:
     "Tu n'organises encore aucun événement. Réponds `créer événement` pour en lancer un.",
@@ -455,6 +469,8 @@ const FR: Bundle = {
     (notified > 0 ? ` — ${notified} ${notified === 1 ? "personne prévenue" : "personnes prévenues"}` : "") +
     ".",
   eventAlreadyCancelled: (title) => `« ${title} » était déjà annulé.`,
+  cantCancelOngoing: (title) =>
+    `« ${title} » est déjà en cours, je ne peux donc plus l'annuler. Tu peux encore en modifier les détails si besoin.`,
   eventCancelledNotice: (title, hostName) =>
     `Info — « ${title} »${hostName ? ` (organisé par ${hostName})` : ""} a été annulé. ✕`,
   eventUpdated: (title, notified) =>
