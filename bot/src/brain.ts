@@ -90,6 +90,7 @@ interface EditEventState {
 interface AwaitingOtUsernameState {
   eventId: string;
   startedAt: Timestamp;
+  attempts?: number;
 }
 
 interface ConvoState {
@@ -194,7 +195,7 @@ const isNo = isNegative;
 // Plain English `event …` without create/new/add OR a leading slash is
 // rejected so "the event went well" doesn't trigger the wizard.
 const CREATE_EVENT_CMD_RE =
-  /^\s*(?:\/[\w-]*event|(?:create|new|add)[\s_-]?event|(?:cr[ée]er|nouvel|nouvelle|ajouter)[\s_-]?[ée]v[ée]nement|[ée]v[ée]nement)\b[:\s-]*(.*)$/i;
+  /^\s*(?:\/[\w-]*event|(?:create|new|add|start|make)[\s_-]+(?:a\s+|an\s+|a\s+new\s+|another\s+)?event|(?:cr[ée]er|nouvel|nouvelle|ajouter)[\s_-]+(?:un\s+|une\s+)?[ée]v[ée]nement|[ée]v[ée]nement)\b[:\s-]*(.*)$/i;
 
 function matchCreateEventCommand(text: string): { matched: boolean; rest: string } {
   const m = text.match(CREATE_EVENT_CMD_RE);
@@ -253,6 +254,23 @@ async function setEditEvent(
       { merge: true }
     );
   }
+}
+
+// Pull an Online Tribes username out of a reply to the "what's your OT username?"
+// prompt. Accepts bare handles and natural phrasings ("my username is X",
+// "it's @X", "mon pseudo est X"). Returns null when the message clearly isn't a
+// username answer (a question, command, or multi-word sentence) — the caller
+// uses that to STOP trapping the host on the username step.
+function extractOtUsername(raw: string): string | null {
+  let s = raw.trim();
+  s = s.replace(
+    /^(?:my\s+(?:ot\s+|online[\s-]?tribes?\s+)?username\s+is|username\s*[:=]?\s*(?:is\s+)?|here\s+(?:it\s+)?is|it'?s|it\s+is|c'?est|mon\s+pseudo\s+(?:est|c'?est)?|pseudo\s*[:=]?)\s*/i,
+    ""
+  );
+  s = s.replace(/^@/, "").trim();
+  // A username is a single handle-safe token. Spaces / sentence punctuation ⇒
+  // it isn't a username answer.
+  return /^[A-Za-z0-9_.\-]{2,40}$/.test(s) ? s : null;
 }
 
 async function setAwaitingOtUsername(
@@ -434,13 +452,19 @@ const VENTURE_QUESTION_CUE = /\b(tell|what|whats?|about|explain|who|info|learn|d
 // CREATE_EVENT_CMD_RE, so overlap here is harmless.
 const LIST_EVENTS_RE =
   /(?:\b(?:upcoming\s+events?|what'?s\s+on|list\s+(?:the\s+)?events?|any\s+events?|which\s+(?:are\s+the\s+)?(?:upcoming\s+)?events?|show\s+(?:me\s+)?(?:the\s+)?events?|what\s+events?|quoi\s+de\s+pr[ée]vu)\b|[ée]v[ée]nements\b|[ée]v[ée]nements?\s*(?:[àa]\s+venir|pr[ée]vus?))/i;
+// "Is there an event named X?" / "do we have an event called X?" — a yes/no
+// existence check for a SPECIFIC event, answered directly instead of dumping the
+// whole what's-on list. Requires a name after the cue (a bare "is there any
+// event?" has none → falls through to the list).
+const EVENT_EXISTS_RE =
+  /\b(?:is|are)\s+there\s+(?:any|an|a)?\s*events?(?:\s+(?:name\s+with|named?|called|titled?|like|with))?\s*["']?([^"'?]*[^\s"'?])["']?\s*\??\s*$|\bdo\s+(?:we|you|i)\s+have\s+(?:any|an|a)?\s*events?\s+(?:name\s+with|named?|called|titled?|like|with)\s*["']?([^"'?]*[^\s"'?])["']?\s*\??\s*$/i;
 // An EXPLICIT create command (verb + event), as opposed to a bare "événement" or
 // a list query. The `what's on` listing is routed before the create wizard (so
 // the French "événement à venir" lands as a list, not creation), so it must
 // defer to a real create command whose description happens to contain list words
 // (e.g. "create event: upcoming-events recap").
 const EXPLICIT_CREATE_RE =
-  /^\s*(?:\/[\w-]*event|(?:create|new|add)[\s_-]?event|(?:cr[ée]er|nouvel|nouvelle|ajouter)[\s_-]?[ée]v[ée]nement)\b/i;
+  /^\s*(?:\/[\w-]*event|(?:create|new|add|start|make)[\s_-]+(?:a\s+|an\s+|a\s+new\s+|another\s+)?event|(?:cr[ée]er|nouvel|nouvelle|ajouter)[\s_-]+(?:un\s+|une\s+)?[ée]v[ée]nement)\b/i;
 function isKnownIntent(body: string): boolean {
   const t = body.trim();
   if (/^\/?help\b/i.test(t)) return true;
@@ -448,7 +472,7 @@ function isKnownIntent(body: string): boolean {
   if (/\bfind me\b/i.test(t)) return true;
   if (/\bwho(?:'?s| is)?\s*(?:here|around)\b/i.test(t)) return true;
   if (/\bfree\s+(?:for|now)\b/i.test(t)) return true;
-  if (/\b(?:create|new)\s+event\b/i.test(t) || /^\/event\b/i.test(t)) return true;
+  if (EXPLICIT_CREATE_RE.test(t) || /^\/event\b/i.test(t)) return true;
   // RSVP-status query — "have I signed in?", "am I in?", "which events am I in".
   if (RSVP_STATUS_RE.test(t)) return true;
   // Owner event management — `my events`, edit/cancel (typed or button callback).
@@ -1059,7 +1083,7 @@ const MY_EVENTS_RE = /^\s*\/?(?:my\s+events?|mes\s+[ée]v[ée]nements?)\s*$/i;
 // possessive ("my events") or a past/retrospective frame ("events I created",
 // "have I created … event") so it never swallows the "create event" command.
 const MY_EVENTS_QUERY_RE =
-  /\bmy\s+events?\b|\bmes\s+[ée]v[ée]nements?\b|\bevents?\s+(?:that\s+|did\s+|have\s+)?i\s+(?:create|created|host(?:ed)?|made|make|own|organi[sz]ed?)\b|\b(?:have|did)\s+i\s+(?:create|created|make|made|host|hosted|organi[sz]ed?)\b[^?]*?\bevents?\b/i;
+  /\bmy\s+events?\b|\bmes\s+[ée]v[ée]nements?\b|\bevents?\s+(?:that\s+|did\s+|have\s+)?i(?:'m|’m| am)?\s+(?:create|created|host(?:ed|ing)?|made|make|own|organi[sz]ed?)\b|\b(?:have|did)\s+i\s+(?:create|created|make|made|host|hosted|organi[sz]ed?)\b[^?]*?\bevents?\b/i;
 const CANCEL_EVENT_CMD_RE =
   /^\s*\/?(?:cancel|delete|annuler|supprimer)[\s_-]?(?:event|[ée]v[ée]nement)\b[:\s-]*(.*)$/i;
 const EDIT_EVENT_CMD_RE =
@@ -1308,7 +1332,17 @@ export async function processMessage(deps: ProcessMessageDeps): Promise<void> {
   // mid-onboarding — otherwise a new user's real question gets silently consumed
   // as a profile answer (and pollutes their bio). Only genuine free-text falls
   // through to onboarding.
-  if (!isKnownIntent(body)) {
+  // An active multi-turn flow (event-creation wizard, edit-event, OT-username,
+  // a pending confirmation, or an incoming intro) owns the next free-text turn —
+  // onboarding must NOT cut in front of it, or e.g. "Change the name to Dark
+  // Night" mid-edit gets eaten by the "4 quick questions" profile interview.
+  const inActiveFlow =
+    !!convoState.awaitingOtUsername ||
+    convoState.eventCreation?.step === "awaiting_description" ||
+    convoState.editEvent?.step === "awaiting_changes" ||
+    !!convoState.pendingAction ||
+    !!convoState.pendingIntroRequest;
+  if (!isKnownIntent(body) && !inActiveFlow) {
     const onboarding = await runOnboardingStep(userRef, userData, body, lang);
     if (onboarding.handled) {
       await writeOutbox(db, {
@@ -1439,46 +1473,72 @@ export async function processMessage(deps: ProcessMessageDeps): Promise<void> {
       await inboxDoc.ref.update({ intent: "ot_username_skipped" });
       return;
     }
-    const username = body.trim().replace(/^@/, "");
-    const evSnap = await db.doc(`events/${eventId}`).get();
-    let reply: string;
-    let intent: string;
-    if (!evSnap.exists || evSnap.data()?.status !== "scheduled") {
-      // Event vanished (cancelled/expired) before they answered — drop the prompt.
+    // Don't trap the host: if they fired a real command, or the message clearly
+    // isn't a username ("tell me the 3 members", "I'm free", "hello there"),
+    // drop the username prompt and let normal routing handle the message — the
+    // group can be added later. Only username-shaped input is treated as an
+    // answer (parsed out of natural phrasing like "my username is X").
+    const username = extractOtUsername(body);
+    if (isKnownIntent(body) || !username) {
       await setAwaitingOtUsername(db, uid, null);
-      reply = msg(lang).otUsernameSkipped;
-      intent = "ot_username_eventgone";
+      // fall through to the normal command/Claude routing below.
     } else {
-      const ev = evSnap.data() ?? {};
-      const tribe = await createTribeForHost({
-        ownerUsername: username,
-        name: String(ev.title ?? "the event"),
-        bio: (ev.description as string) || undefined,
-      });
-      if (tribe.ok) {
-        await db.doc(`users/${uid}`).set({ onlineTribesUsername: username }, { merge: true });
-        await db.doc(`events/${eventId}`).set({ tribeLink: tribe.inviteLink }, { merge: true });
+      const evSnap = await db.doc(`events/${eventId}`).get();
+      let reply: string;
+      let intent: string;
+      if (!evSnap.exists || evSnap.data()?.status !== "scheduled") {
+        // Event vanished (cancelled/expired) before they answered — drop the prompt.
         await setAwaitingOtUsername(db, uid, null);
-        reply = msg(lang).tribeReady(tribe.inviteLink);
-        intent = "ot_username_set";
-      } else if (tribe.reason === "username_not_found") {
-        // Keep the state so their next message retries.
-        reply = msg(lang).otUsernameNotFound;
-        intent = "ot_username_notfound";
+        reply = msg(lang).otUsernameSkipped;
+        intent = "ot_username_eventgone";
       } else {
-        // not_configured / transient error — don't loop the host.
-        await setAwaitingOtUsername(db, uid, null);
-        reply = msg(lang).otUsernameError;
-        intent = "ot_username_error";
+        const ev = evSnap.data() ?? {};
+        const tribe = await createTribeForHost({
+          ownerUsername: username,
+          name: String(ev.title ?? "the event"),
+          bio: (ev.description as string) || undefined,
+        });
+        if (tribe.ok) {
+          await db.doc(`users/${uid}`).set({ onlineTribesUsername: username }, { merge: true });
+          await db.doc(`events/${eventId}`).set({ tribeLink: tribe.inviteLink }, { merge: true });
+          await setAwaitingOtUsername(db, uid, null);
+          reply = msg(lang).tribeReady(tribe.inviteLink);
+          intent = "ot_username_set";
+        } else if (tribe.reason === "username_not_found") {
+          // Retry once, then give up gracefully so we never loop the host on a
+          // username they can't get right (or that doesn't exist in OT yet).
+          const attempts = (convoState.awaitingOtUsername.attempts ?? 0) + 1;
+          if (attempts >= 2) {
+            await setAwaitingOtUsername(db, uid, null);
+            reply = msg(lang).otUsernameSkipped;
+            intent = "ot_username_giveup";
+          } else {
+            await db.doc(`conversationStates/${uid}`).set(
+              {
+                uid,
+                awaitingOtUsername: { eventId, startedAt: convoState.awaitingOtUsername.startedAt, attempts },
+                updatedAt: FieldValue.serverTimestamp(),
+              },
+              { merge: true }
+            );
+            reply = msg(lang).otUsernameNotFound;
+            intent = "ot_username_notfound";
+          }
+        } else {
+          // not_configured / transient error — don't loop the host.
+          await setAwaitingOtUsername(db, uid, null);
+          reply = msg(lang).otUsernameError;
+          intent = "ot_username_error";
+        }
       }
+      await writeOutbox(db, { provider, uid, phone, chatId, body: reply, type: "ot_username" });
+      await appendTurns(db, uid, [
+        { role: "user", content: body, at: Timestamp.now() },
+        { role: "assistant", content: reply, at: Timestamp.now() },
+      ]);
+      await inboxDoc.ref.update({ intent });
+      return;
     }
-    await writeOutbox(db, { provider, uid, phone, chatId, body: reply, type: "ot_username" });
-    await appendTurns(db, uid, [
-      { role: "user", content: body, at: Timestamp.now() },
-      { role: "assistant", content: reply, at: Timestamp.now() },
-    ]);
-    await inboxDoc.ref.update({ intent });
-    return;
   }
 
   // RSVP — `join <event>` (typed by name) or the Join button's `join <eventId>`
@@ -1534,6 +1594,32 @@ export async function processMessage(deps: ProcessMessageDeps): Promise<void> {
       { role: "assistant", content: r.body, at: Timestamp.now() },
     ]);
     await inboxDoc.ref.update({ intent: "my_events" });
+    return;
+  }
+
+  // "Is there an event named X?" — a yes/no existence check, answered directly
+  // (before the what's-on list so it isn't swallowed by the "any event" arm).
+  const existsMatch = body.match(EVENT_EXISTS_RE);
+  if (existsMatch && !EXPLICIT_CREATE_RE.test(body)) {
+    const query = (existsMatch[1] || existsMatch[2] || "").trim().toLowerCase();
+    const events = await getUpcomingEvents(db);
+    const hit = events.find(
+      (e) =>
+        e.title.toLowerCase().includes(query) || query.includes(e.title.toLowerCase())
+    );
+    const reply = hit
+      ? (lang === "fr"
+          ? `✅ Oui — « ${hit.title} » est prévu.`
+          : `✅ Yes — "${hit.title}" is on the calendar.`)
+      : (lang === "fr"
+          ? `Non — aucun événement « ${query} » pour l'instant. Réponds « quoi de prévu » pour voir l'agenda.`
+          : `No — there's no event called "${query}" yet. Reply "what's on" to see what's scheduled.`);
+    await writeOutbox(db, { provider, uid, phone, chatId, body: reply, type: "event_exists" });
+    await appendTurns(db, uid, [
+      { role: "user", content: body, at: Timestamp.now() },
+      { role: "assistant", content: reply, at: Timestamp.now() },
+    ]);
+    await inboxDoc.ref.update({ intent: hit ? "event_exists_yes" : "event_exists_no" });
     return;
   }
 
