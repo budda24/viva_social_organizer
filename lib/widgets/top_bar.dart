@@ -20,67 +20,100 @@ class TopBar extends StatelessWidget {
       builder: (context, snap) {
         final signedIn = snap.data != null;
         final currentRoute = ModalRoute.of(context)?.settings.name ?? '';
-        return Padding(
-          padding: EdgeInsets.symmetric(
-            horizontal: isCompact ? 20 : 40,
-            vertical: 24,
+
+        final brand = InkWell(
+          borderRadius: BorderRadius.circular(8),
+          onTap: () => Navigator.of(context).pushReplacementNamed(
+            signedIn ? '/welcome' : '/',
           ),
           child: Row(
-            children: [
-              InkWell(
-                borderRadius: BorderRadius.circular(8),
-                onTap: () => Navigator.of(context).pushReplacementNamed(
-                  signedIn ? '/welcome' : '/',
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: const [
-                    OnlineTribesLogo(),
-                    SizedBox(width: 10),
-                    Text(
-                      'Online Tribes',
-                      style: TextStyle(
-                        fontWeight: FontWeight.w600,
-                        fontSize: 15,
-                        color: AppColors.ink,
-                      ),
-                    ),
-                  ],
+            mainAxisSize: MainAxisSize.min,
+            children: const [
+              OnlineTribesLogo(),
+              SizedBox(width: 10),
+              Text(
+                'Online Tribes',
+                style: TextStyle(
+                  fontWeight: FontWeight.w600,
+                  fontSize: 15,
+                  color: AppColors.ink,
                 ),
               ),
-              if (!isCompact) ...[
-                const SizedBox(width: 20),
-                Container(width: 1, height: 18, color: AppColors.divider),
-                const SizedBox(width: 20),
-                const Text(
-                  'VIVA TRIBE  ·  17-20 JUNE 2026',
-                  style: TextStyle(
-                    fontSize: 11,
-                    letterSpacing: 1.3,
-                    color: AppColors.inkMuted,
-                    fontWeight: FontWeight.w500,
-                  ),
+            ],
+          ),
+        );
+
+        // The three top-level tabs, only meaningful once signed in.
+        final navLinks = <Widget>[
+          _NavLink(
+            label: 'Welcome',
+            route: '/welcome',
+            active: currentRoute == '/welcome',
+          ),
+          _NavLink(
+            label: 'People',
+            route: '/members',
+            active: currentRoute == '/members',
+          ),
+          _NavLink(
+            label: 'Pitches',
+            route: '/pitches',
+            active: currentRoute == '/pitches',
+          ),
+        ];
+
+        // On phones the brand + 3 tabs + trailing pill don't fit on one line,
+        // so the tabs get clipped (or trigger a RenderFlex overflow) and seem
+        // to vanish. Stack into two rows: brand/trailing on top, tabs below.
+        if (isCompact) {
+          return Padding(
+            padding: const EdgeInsets.fromLTRB(20, 20, 20, 12),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Flexible(child: brand),
+                    const Spacer(),
+                    if (trailing != null) Flexible(child: trailing!),
+                  ],
                 ),
+                if (signedIn) ...[
+                  const SizedBox(height: 12),
+                  Wrap(
+                    spacing: 18,
+                    runSpacing: 8,
+                    children: navLinks,
+                  ),
+                ],
               ],
+            ),
+          );
+        }
+
+        return Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 40, vertical: 24),
+          child: Row(
+            children: [
+              brand,
+              const SizedBox(width: 20),
+              Container(width: 1, height: 18, color: AppColors.divider),
+              const SizedBox(width: 20),
+              const Text(
+                'VIVA TRIBE  ·  17-20 JUNE 2026',
+                style: TextStyle(
+                  fontSize: 11,
+                  letterSpacing: 1.3,
+                  color: AppColors.inkMuted,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
               if (signedIn) ...[
                 const SizedBox(width: 28),
-                _NavLink(
-                  label: 'Welcome',
-                  route: '/welcome',
-                  active: currentRoute == '/welcome',
-                ),
-                const SizedBox(width: 18),
-                _NavLink(
-                  label: 'People',
-                  route: '/members',
-                  active: currentRoute == '/members',
-                ),
-                const SizedBox(width: 18),
-                _NavLink(
-                  label: 'Pitches',
-                  route: '/pitches',
-                  active: currentRoute == '/pitches',
-                ),
+                for (var i = 0; i < navLinks.length; i++) ...[
+                  if (i > 0) const SizedBox(width: 18),
+                  navLinks[i],
+                ],
               ],
               const Spacer(),
               // Flexible so a wide trailing pill shrinks instead of overflowing
