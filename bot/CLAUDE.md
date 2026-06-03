@@ -93,6 +93,7 @@ ACTION>>>
 5. The user-facing text comes FIRST, then the marker. The user only sees the text. Keep the text under 280 chars even with the marker present.
 6. If the user's event proposal is missing a time or title you can't infer, ask one short follow-up question and emit no marker that turn.
 7. Use absolute ISO times. The current date is supplied in the context block — anchor "tonight" / "tomorrow" off that.
+8. **Events must be scheduled for tomorrow or later (Paris time) — never the same day.** Members need lead time to see the invite and RSVP. If the user proposes a same-day event ("drinks tonight", "coffee in an hour", "lunch today"), do NOT emit a marker — reply in ONE short line that events need to be for tomorrow onward and ask which day works (e.g. "Same-day's too tight for people to plan around — what day from tomorrow works?"). When the user names a weekday or "tomorrow", resolve it to the next such date that is strictly after today.
 
 ## EVENT_CREATION_MODE
 

@@ -150,6 +150,9 @@ export interface BtnLabels {
 export interface Bundle {
   cancelled: string;
   createEventPrompt: string;
+  // Shown when a host tries to schedule an event for today (or earlier) — events
+  // must be at least the next day so members have time to see it and RSVP.
+  eventMustBeFuture: string;
   eventCreated: (title: string, pinged: number, unreachable: number) => string;
   // withCta=false drops the trailing "Reply …" line — used on Telegram where a
   // tap-button replaces it (see brain.ts / actions.ts channel routing).
@@ -242,8 +245,11 @@ const EN: Bundle = {
   cancelled: "Cancelled.",
   createEventPrompt:
     'What\'s the event? One message — title, when, where. ' +
-    'Example: "Drinks tonight 8pm at Café Marly, max 12." ' +
+    'Example: "Drinks tomorrow 8pm at Café Marly, max 12." ' +
     "Reply cancel to back out.",
+  eventMustBeFuture:
+    "Events need to be for tomorrow or later so people have time to see it and RSVP. " +
+    "What day works?",
   eventCreated: (title, pinged, unreachable) =>
     `✓ "${title}" created. Pinging ${pinged} members` +
     (unreachable > 0 ? ` (${unreachable} unreachable)` : "") +
@@ -409,8 +415,11 @@ const FR: Bundle = {
   cancelled: "Annulé.",
   createEventPrompt:
     "Quel événement ? En un message — titre, quand, où. " +
-    "Exemple : « Verres ce soir 20h au Café Marly, max 12. » " +
+    "Exemple : « Verres demain 20h au Café Marly, max 12. » " +
     "Répondez annuler pour abandonner.",
+  eventMustBeFuture:
+    "Les événements doivent être pour demain ou plus tard, le temps que les membres " +
+    "le voient et répondent. Quel jour te convient ?",
   eventCreated: (title, pinged, unreachable) =>
     `✓ « ${title} » créé. J'envoie l'info à ${pinged} membres` +
     (unreachable > 0 ? ` (${unreachable} injoignables)` : "") +

@@ -329,6 +329,18 @@ function parseFreeCommand(text: string): { matched: boolean; minutes: number } {
   return { matched: true, minutes };
 }
 
+// Paris calendar day as a sortable "YYYY-MM-DD" key. Comparing two of these
+// lexicographically tells us whether an event lands on (or before) today in
+// Paris — used to enforce the "no same-day events" rule.
+function parisDateKey(ms: number): string {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Europe/Paris",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date(ms));
+}
+
 function formatParisHHMM(ms: number): string {
   return new Intl.DateTimeFormat("en-GB", {
     timeZone: "Europe/Paris",
@@ -2266,6 +2278,21 @@ export async function processMessage(deps: ProcessMessageDeps): Promise<void> {
     reply = /intro me to/i.test(cleaned)
       ? cleaned
       : `${cleaned}\n\n${msg(lang).introBrowseNudge}`.trim();
+  }
+
+  // No same-day events: a meetup must be scheduled for tomorrow (Paris) or later
+  // so members have time to see the broadcast and RSVP. The prompt also asks for
+  // this, but the local model is unreliable about dates, so enforce it here —
+  // drop the marker and ask for a different day rather than create then reject.
+  if (action?.kind === "create_event") {
+    const startMs = Date.parse(action.startAtISO);
+    if (
+      Number.isNaN(startMs) ||
+      parisDateKey(startMs) <= parisDateKey(Date.now())
+    ) {
+      action = null;
+      reply = msg(lang).eventMustBeFuture;
+    }
   }
 
   if (action) {
