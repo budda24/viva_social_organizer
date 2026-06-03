@@ -220,7 +220,7 @@ function parseLinkedinUrl(text: string): string | null {
   return url.slice(0, 300);
 }
 
-function parseTopics(text: string): string[] {
+export function parseTopics(text: string): string[] {
   return text
     .split(/[,\n;/]+/)
     .map((t) => t.trim())
@@ -230,7 +230,8 @@ function parseTopics(text: string): string[] {
 }
 
 // Case-insensitive dedupe, preserving first-seen casing, capped at 6 topics.
-function dedupeTopics(topics: string[]): string[] {
+export const MAX_TOPICS = 6;
+export function dedupeTopics(topics: string[]): string[] {
   const seen = new Set<string>();
   const out: string[] = [];
   for (const t of topics) {
@@ -240,7 +241,7 @@ function dedupeTopics(topics: string[]): string[] {
       out.push(t);
     }
   }
-  return out.slice(0, 6);
+  return out.slice(0, MAX_TOPICS);
 }
 
 // ── Afterthought / correction handling ──────────────────────────────────────

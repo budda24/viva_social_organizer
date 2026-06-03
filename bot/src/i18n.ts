@@ -192,6 +192,15 @@ export interface Bundle {
   rsvpStatusNone: string;
   // RSVP status query naming ONE specific event the user is NOT signed in for.
   rsvpStatusNotFor: (title: string) => string;
+  // Post-onboarding profile edit — `add interest <x>` / `remove interest <x>` /
+  // `my interests`. Lets a signed-up member tweak the topics the matcher uses.
+  interestsAdded: (added: string[], all: string[]) => string;
+  interestsNothingToAdd: string;
+  interestsFull: (all: string[]) => string;
+  interestsRemoved: (removed: string, all: string[]) => string;
+  interestsNotFound: (name: string, all: string[]) => string;
+  interestsList: (all: string[]) => string;
+  interestsEmpty: string;
   // Owner event management — `my events`, edit/cancel flows, and the notices
   // sent to attendees when the host changes or calls off an event.
   myEventsHeader: string;
@@ -291,6 +300,21 @@ const EN: Bundle = {
     'Not yet — you haven\'t signed in for any event. Reply "what\'s on" to pick one.',
   rsvpStatusNotFor: (title) =>
     `Not yet — you're not signed in for "${title}". Reply "what's on" to find it.`,
+  interestsAdded: (added, all) =>
+    `Added ${added.join(", ")} ✅ Your interests: ${all.join(", ")}.`,
+  interestsNothingToAdd:
+    "Tell me what to add, e.g. `add interest cricket`.",
+  interestsFull: (all) =>
+    `You're at the max of 6 interests: ${all.join(", ")}. Remove one first with \`remove interest <name>\`.`,
+  interestsRemoved: (removed, all) =>
+    all.length
+      ? `Removed ${removed} ✅ Your interests: ${all.join(", ")}.`
+      : `Removed ${removed} ✅ You have no interests left — add one with \`add interest <name>\`.`,
+  interestsNotFound: (name, all) =>
+    `You don't have "${name}" listed. Your interests: ${all.join(", ") || "none yet"}.`,
+  interestsList: (all) => `Your interests: ${all.join(", ")}.`,
+  interestsEmpty:
+    "You have no interests listed yet. Add one with `add interest <name>`.",
   myEventsHeader: "Events you host:",
   myEventsEmpty:
     "You're not hosting any events yet. Reply `create event` to start one.",
@@ -375,6 +399,7 @@ const EN: Bundle = {
     "• who is here — quick look at who's in the circle\n" +
     "• what's on — see the upcoming events\n" +
     "• free for 30 — flag you're free now; I'll find someone free to meet\n" +
+    "• add interest <x> — tune what I match you on (also `my interests`)\n" +
     "• language — switch English / Français\n" +
     "• help — see this menu again\n" +
     "• stop — opt out of messages",
@@ -442,6 +467,21 @@ const FR: Bundle = {
     "Pas encore — tu n'es inscrit à aucun événement. Réponds « quoi de prévu » pour en choisir un.",
   rsvpStatusNotFor: (title) =>
     `Pas encore — tu n'es pas inscrit à « ${title} ». Réponds « quoi de prévu » pour le trouver.`,
+  interestsAdded: (added, all) =>
+    `${added.join(", ")} ajouté(s) ✅ Tes centres d'intérêt : ${all.join(", ")}.`,
+  interestsNothingToAdd:
+    "Dis-moi quoi ajouter, p. ex. `ajouter intérêt cricket`.",
+  interestsFull: (all) =>
+    `Tu as atteint le maximum de 6 centres d'intérêt : ${all.join(", ")}. Retires-en un d'abord avec \`retirer intérêt <nom>\`.`,
+  interestsRemoved: (removed, all) =>
+    all.length
+      ? `${removed} retiré ✅ Tes centres d'intérêt : ${all.join(", ")}.`
+      : `${removed} retiré ✅ Il ne te reste aucun centre d'intérêt — ajoutes-en un avec \`ajouter intérêt <nom>\`.`,
+  interestsNotFound: (name, all) =>
+    `Tu n'as pas « ${name} » dans ta liste. Tes centres d'intérêt : ${all.join(", ") || "aucun pour l'instant"}.`,
+  interestsList: (all) => `Tes centres d'intérêt : ${all.join(", ")}.`,
+  interestsEmpty:
+    "Tu n'as encore aucun centre d'intérêt. Ajoutes-en un avec `ajouter intérêt <nom>`.",
   myEventsHeader: "Les événements que tu organises :",
   myEventsEmpty:
     "Tu n'organises encore aucun événement. Réponds `créer événement` pour en lancer un.",
@@ -527,6 +567,7 @@ const FR: Bundle = {
     "• qui est là — un aperçu du cercle\n" +
     "• quoi de prévu — voir les événements à venir\n" +
     "• libre 30 — signale que tu es dispo ; je trouve quelqu'un de libre\n" +
+    "• ajouter intérêt <x> — affine ce sur quoi je te matche (aussi `mes intérêts`)\n" +
     "• langue — passer English / Français\n" +
     "• help — revoir ce menu\n" +
     "• stop — ne plus recevoir de messages",

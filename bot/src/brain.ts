@@ -23,7 +23,13 @@ import { runChat, embed } from "./llm.js";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
-import { runOnboardingStep, type UserDocLike } from "./onboarding.js";
+import {
+  dedupeTopics,
+  MAX_TOPICS,
+  parseTopics,
+  runOnboardingStep,
+  type UserDocLike,
+} from "./onboarding.js";
 import {
   acceptIntroRequest,
   declineIntroRequest,
@@ -488,6 +494,7 @@ function isKnownIntent(body: string): boolean {
   // `join <event>` RSVP (text or Join-button token) — answer it even mid-onboarding
   // so a broadcast that lands before sign-up finishes isn't eaten as a profile answer.
   if (JOIN_CMD_RE.test(t)) return true;
+  if (isInterestCommand(t)) return true;
   if (LIST_EVENTS_RE.test(t)) return true;
   // Venture promo: a venture name AND a question/request cue (or a "?").
   if (VENTURE_RE.test(t) && (t.includes("?") || VENTURE_QUESTION_CUE.test(t))) return true;
@@ -994,6 +1001,84 @@ async function writeOutbox(
 // filler are stripped; the capture group is the event id or title fragment.
 const JOIN_CMD_RE =
   /^\s*\/?(?:(?:i\s+(?:want|wanna|would\s+like|'?d\s+like)\s+(?:to\s+)?|i'?d\s+like\s+to\s+|let\s+me\s+|can\s+i\s+|please\s+|je\s+(?:veux|voudrais)\s+)?)(?:join|rejoindre|participer|rsvp(?:\s+to)?)\b[:\s-]*(?:(?:the\s+|l[ea']\s*)?(?:event|[ée]v[ée]nement)\s+)?(.+)$/i;
+
+// ── Post-onboarding profile edit: add / remove / list interests ─────────────
+// A signed-up member can tweak the topics the matcher uses without redoing the
+// whole interview. "add interest cricket", "remove interest fintech", "my
+// interests" (EN + FR). The keyword "interest(s)" / "intérêt(s)" / "centres
+// d'intérêt" / "topic(s)" is required so it never swallows an event command.
+const INTEREST_KEYWORD = `(?:interests?|int[ée]r[êe]ts?|centres?\\s+d['’]int[ée]r[êe]t|topics?)`;
+const INTEREST_ADD_RE = new RegExp(
+  `^\\s*(?:add|ajoute(?:r)?)\\s+(?:to\\s+my\\s+|me\\s+|my\\s+|a\\s+|an\\s+|une?\\s+|[àa]\\s+mes\\s+|mes\\s+)?${INTEREST_KEYWORD}\\s*[:\\-]?\\s*(.*)$`,
+  "i"
+);
+const INTEREST_REMOVE_RE = new RegExp(
+  `^\\s*(?:remove|delete|drop|retire(?:r)?|supprime(?:r)?|enl[èe]ve(?:r)?)\\s+(?:from\\s+my\\s+|my\\s+|de\\s+mes\\s+|mes\\s+)?${INTEREST_KEYWORD}\\s*[:\\-]?\\s*(.+)$`,
+  "i"
+);
+const INTEREST_LIST_RE = new RegExp(
+  `^\\s*(?:(?:show|list|view|see|what\\s+are)\\s+)?(?:my\\s+|mes\\s+)?${INTEREST_KEYWORD}\\s*\\??\\s*$`,
+  "i"
+);
+
+export function isInterestCommand(t: string): boolean {
+  return INTEREST_ADD_RE.test(t) || INTEREST_REMOVE_RE.test(t) || INTEREST_LIST_RE.test(t);
+}
+
+// Read the member's current interests from the field the matcher actually uses
+// (enrichment.topics), falling back to the legacy top-level `topics`.
+function currentInterests(userData: Record<string, unknown>): string[] {
+  const enr = (userData.enrichment ?? {}) as Record<string, unknown>;
+  if (Array.isArray(enr.topics)) return (enr.topics as string[]).filter(Boolean);
+  const top = userData.topics;
+  return Array.isArray(top) ? (top as string[]).filter(Boolean) : [];
+}
+
+// Handle an add/remove/list interests command, persisting to enrichment.topics so
+// the change is live for the next match. Returns the user-facing reply, or null
+// if the message isn't an interest command.
+async function handleInterestCommand(
+  db: Firestore,
+  uid: string,
+  userData: Record<string, unknown>,
+  body: string,
+  lang: Lang
+): Promise<string | null> {
+  const current = currentInterests(userData);
+
+  const addM = body.match(INTEREST_ADD_RE);
+  if (addM) {
+    const toAdd = parseTopics(addM[1] ?? "");
+    if (toAdd.length === 0) return msg(lang).interestsNothingToAdd;
+    const have = new Set(current.map((t) => t.toLowerCase()));
+    const merged = dedupeTopics([...current, ...toAdd]);
+    const added = merged.filter((t) => !have.has(t.toLowerCase()));
+    if (added.length === 0) {
+      // Nothing new landed: either all were duplicates, or the list is full.
+      return current.length >= MAX_TOPICS
+        ? msg(lang).interestsFull(current)
+        : msg(lang).interestsList(current);
+    }
+    await db.doc(`users/${uid}`).set({ enrichment: { topics: merged } }, { merge: true });
+    return msg(lang).interestsAdded(added, merged);
+  }
+
+  const remM = body.match(INTEREST_REMOVE_RE);
+  if (remM) {
+    const target = remM[1].trim().toLowerCase();
+    const hit = current.find((t) => t.toLowerCase() === target);
+    if (!hit) return msg(lang).interestsNotFound(remM[1].trim(), current);
+    const kept = current.filter((t) => t.toLowerCase() !== target);
+    await db.doc(`users/${uid}`).set({ enrichment: { topics: kept } }, { merge: true });
+    return msg(lang).interestsRemoved(hit, kept);
+  }
+
+  if (INTEREST_LIST_RE.test(body)) {
+    return current.length ? msg(lang).interestsList(current) : msg(lang).interestsEmpty;
+  }
+
+  return null;
+}
 
 // Normalize a title/query for tolerant matching: lowercase, then fold any run of
 // non-alphanumeric characters (so "·", ".", "-", extra spaces all collapse) into
@@ -1771,6 +1856,27 @@ export async function processMessage(deps: ProcessMessageDeps): Promise<void> {
       { role: "assistant", content: result.reply, at: Timestamp.now() },
     ]);
     await inboxDoc.ref.update({ intent: result.joined ? "rsvp_joined" : "rsvp_miss" });
+    return;
+  }
+
+  // Profile edit — `add interest <x>` / `remove interest <x>` / `my interests`.
+  // Lets a signed-up member tune the topics the matcher uses, deterministically
+  // (no Claude call), so a post-onboarding "add cricket" isn't mistaken for an
+  // event proposal.
+  const interestReply = await handleInterestCommand(
+    db,
+    uid,
+    userData as Record<string, unknown>,
+    body,
+    lang
+  );
+  if (interestReply !== null) {
+    await writeOutbox(db, { provider, uid, phone, chatId, body: interestReply, type: "interests" });
+    await appendTurns(db, uid, [
+      { role: "user", content: body, at: Timestamp.now() },
+      { role: "assistant", content: interestReply, at: Timestamp.now() },
+    ]);
+    await inboxDoc.ref.update({ intent: "interests" });
     return;
   }
 
