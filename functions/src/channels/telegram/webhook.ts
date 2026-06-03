@@ -16,8 +16,11 @@ const INVITE_CODE_PATTERN = /^VIVA-[A-Z0-9]{4}-[A-Z0-9]{2}$/;
 // `/start` updates a moment apart — different update_ids, so the botInbox
 // update_id de-dup can't collapse them. Each used to queue its own
 // "You're connected" note. Suppress a repeat /start greeting to the same chat
-// inside this window.
-const START_GREET_DEDUP_MS = 60_000;
+// inside this window. Keep it short: the deep-link's duplicate /start lands
+// within ~1-2s, so a few seconds is enough to collapse it — anything longer
+// also eats a member's *deliberate* re-tap of the Start button, leaving them
+// with a silent no-op instead of the menu they expected.
+const START_GREET_DEDUP_MS = 5_000;
 
 interface TgUser {
   id: number;
@@ -127,13 +130,20 @@ export const telegramWebhook = onRequest(
     if (text === "/start" || text.startsWith("/start ")) {
       const bound = await resolveUserByChannel("telegram", chatId);
       if (bound) {
-        // Only greet once per window — the deep-link's duplicate /start would
-        // otherwise queue a second identical "You're connected" note.
+        // Show the menu once per window — the deep-link's duplicate /start would
+        // otherwise queue a second identical greeting. A returning member who
+        // taps Start wants to see what the bot can do, not a terse "you're
+        // connected, now type help" note — so reply with the same welcome menu
+        // a first-time bind gets.
         if (await claimStartGreet(db, chatId)) {
+          const prefLang = (await db.doc(`users/${bound.uid}`).get()).data()
+            ?.preferredLanguage as string | undefined;
+          const effLang: "en" | "fr" =
+            prefLang === "fr" || prefLang === "en" ? prefLang : lang;
           await queueReply(db, {
             chatId,
             uid: bound.uid,
-            body: "You're connected ✓ Reply `help` to see what I can do.",
+            body: welcomeMenu(effLang, bound.displayName ?? "there"),
           });
         }
         res.status(200).send("ok");
@@ -221,6 +231,36 @@ export const telegramWebhook = onRequest(
     res.status(200).send("ok");
   }
 );
+
+/**
+ * The welcome / command menu — the canonical "here's what I can do" reply.
+ * Shown both when a chat first binds and whenever an already-connected member
+ * re-opens with `/start` (Telegram's Start button), so they land on the menu
+ * rather than a terse note telling them to type another command.
+ */
+function welcomeMenu(lang: "en" | "fr", greetingName: string): string {
+  return lang === "fr"
+    ? `Bienvenue ${greetingName} ! Je suis Tribu — je t'aide à rencontrer les bonnes personnes à VivaTech.\n\n` +
+        "Voici ce que je peux faire :\n" +
+        "• trouve-moi un binôme — quelqu'un avec qui explorer VivaTech\n" +
+        "• trouve-moi <sujet> — des personnes précises (ex. « trouve-moi un VC climat »)\n" +
+        "• créer événement — propose un rendez-vous (je préviens tout le monde)\n" +
+        "• qui est là — voir les membres actifs\n" +
+        "• libre 30 — signale que tu es dispo\n" +
+        "• langue — changer English / Français\n" +
+        "• help — revoir ce menu\n" +
+        "• stop — ne plus recevoir de messages"
+    : `Welcome ${greetingName}! I'm Tribu — I help you meet the right humans at VivaTech.\n\n` +
+        "Here's what I can do:\n" +
+        "• find me a buddy — someone to explore VivaTech with\n" +
+        "• find me <topic> — specific people (e.g. \"find me a climate VC\")\n" +
+        "• create event — propose a micro-event (I'll ping everyone)\n" +
+        "• who is here — see active members\n" +
+        "• free for 30 — set your availability\n" +
+        "• language — switch English / Français\n" +
+        "• help — see this menu again\n" +
+        "• stop — opt out";
+}
 
 interface StartResult {
   ok: boolean;
@@ -312,28 +352,7 @@ async function handleStart(args: {
 
     const greetingName =
       (userSnap.data()?.displayName as string | undefined) ?? displayName ?? "there";
-    const reply =
-      effectiveLang === "fr"
-        ? `Bienvenue ${greetingName} ! Je suis Tribu — je t'aide à rencontrer les bonnes personnes à VivaTech.\n\n` +
-          "Voici ce que je peux faire :\n" +
-          "• trouve-moi un binôme — quelqu'un avec qui explorer VivaTech\n" +
-          "• trouve-moi <sujet> — des personnes précises (ex. « trouve-moi un VC climat »)\n" +
-          "• créer événement — propose un rendez-vous (je préviens tout le monde)\n" +
-          "• qui est là — voir les membres actifs\n" +
-          "• libre 30 — signale que tu es dispo\n" +
-          "• langue — changer English / Français\n" +
-          "• help — revoir ce menu\n" +
-          "• stop — ne plus recevoir de messages"
-        : `Welcome ${greetingName}! I'm Tribu — I help you meet the right humans at VivaTech.\n\n` +
-          "Here's what I can do:\n" +
-          "• find me a buddy — someone to explore VivaTech with\n" +
-          "• find me <topic> — specific people (e.g. \"find me a climate VC\")\n" +
-          "• create event — propose a micro-event (I'll ping everyone)\n" +
-          "• who is here — see active members\n" +
-          "• free for 30 — set your availability\n" +
-          "• language — switch English / Français\n" +
-          "• help — see this menu again\n" +
-          "• stop — opt out";
+    const reply = welcomeMenu(effectiveLang, greetingName);
     tx.set(db.collection("whatsappOutbox").doc(), {
       recipientType: "individual",
       recipientUid: uid,
