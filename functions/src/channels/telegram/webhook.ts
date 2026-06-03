@@ -11,6 +11,14 @@ const TELEGRAM_BOT_TOKEN = defineSecret("TELEGRAM_BOT_TOKEN");
 
 const INVITE_CODE_PATTERN = /^VIVA-[A-Z0-9]{4}-[A-Z0-9]{2}$/;
 
+// Telegram re-fires `/start` on a single deep-link open (the t.me handoff plus
+// the in-chat Start button), so one navigation from the Viva site lands as two
+// `/start` updates a moment apart — different update_ids, so the botInbox
+// update_id de-dup can't collapse them. Each used to queue its own
+// "You're connected" note. Suppress a repeat /start greeting to the same chat
+// inside this window.
+const START_GREET_DEDUP_MS = 60_000;
+
 interface TgUser {
   id: number;
   username?: string;
@@ -119,11 +127,15 @@ export const telegramWebhook = onRequest(
     if (text === "/start" || text.startsWith("/start ")) {
       const bound = await resolveUserByChannel("telegram", chatId);
       if (bound) {
-        await queueReply(db, {
-          chatId,
-          uid: bound.uid,
-          body: "You're connected ✓ Reply `help` to see what I can do.",
-        });
+        // Only greet once per window — the deep-link's duplicate /start would
+        // otherwise queue a second identical "You're connected" note.
+        if (await claimStartGreet(db, chatId)) {
+          await queueReply(db, {
+            chatId,
+            uid: bound.uid,
+            body: "You're connected ✓ Reply `help` to see what I can do.",
+          });
+        }
         res.status(200).send("ok");
         return;
       }
@@ -140,7 +152,12 @@ export const telegramWebhook = onRequest(
         displayName,
         lang,
       });
-      if (!handled.ok) {
+      if (handled.ok) {
+        // handleStart already queued the welcome. Occupy the greet window so the
+        // deep-link's trailing duplicate /start (now an already-bound chat)
+        // doesn't stack a "You're connected" note on top of the welcome.
+        await markStartGreeted(db, chatId);
+      } else {
         console.warn(`[telegramWebhook] /start failed: ${handled.reason}`);
         await queueReply(db, {
           chatId,
@@ -331,6 +348,43 @@ async function handleStart(args: {
 
     return { ok: true, uid, userMessage: reply };
   });
+}
+
+function greetRef(db: FirebaseFirestore.Firestore, chatId: number) {
+  return db.doc(`telegramStartGreets/${chatId}`);
+}
+
+/**
+ * Grant a /start greeting at most once per chat per START_GREET_DEDUP_MS, and
+ * refresh the window when it grants. Runs in a transaction so two webhook
+ * invocations racing on the same chat (Telegram's duplicate /start) can't both
+ * win — the loser retries, reads the just-written timestamp, and is denied.
+ */
+async function claimStartGreet(
+  db: FirebaseFirestore.Firestore,
+  chatId: number
+): Promise<boolean> {
+  const ref = greetRef(db, chatId);
+  return db.runTransaction(async (tx) => {
+    const snap = await tx.get(ref);
+    const last = snap.data()?.lastGreetedAt as Timestamp | undefined;
+    if (last && Date.now() - last.toMillis() < START_GREET_DEDUP_MS) {
+      return false;
+    }
+    tx.set(ref, { lastGreetedAt: FieldValue.serverTimestamp() }, { merge: true });
+    return true;
+  });
+}
+
+/** Unconditionally mark this chat as just-greeted (e.g. after a first bind). */
+async function markStartGreeted(
+  db: FirebaseFirestore.Firestore,
+  chatId: number
+): Promise<void> {
+  await greetRef(db, chatId).set(
+    { lastGreetedAt: FieldValue.serverTimestamp() },
+    { merge: true }
+  );
 }
 
 async function queueReply(
