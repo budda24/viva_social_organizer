@@ -21,8 +21,10 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 
-// Force local-only BEFORE importing llm.ts (it reads LLM_BACKEND at module load).
-process.env.LLM_BACKEND = "local";
+// Force the backend BEFORE importing llm.ts (it reads LLM_BACKEND at module load).
+// Defaults to local-only (the production-gate use), but EVAL_BACKEND lets us A/B
+// a frontier model, e.g. EVAL_BACKEND=anthropic CLAUDE_MODEL=claude-haiku-4-5.
+process.env.LLM_BACKEND = process.env.EVAL_BACKEND ?? "local";
 
 const BOT_DIR = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const BASE_SYSTEM_PROMPT = fs.readFileSync(path.join(BOT_DIR, "CLAUDE.md"), "utf-8");
@@ -66,7 +68,12 @@ Recent turns: (none)`;
 interface Case {
   name: string;
   message: string;
-  expectMarker: "create_event" | "intro_buddy" | "edit_event" | null;
+  expectMarker:
+    | "create_event"
+    | "intro_buddy"
+    | "edit_event"
+    | "share_founder_contact"
+    | null;
   volatileExtra?: string;
   // If set, the reply must match this (e.g. a venture pitch, not the menu).
   mustMatch?: RegExp;
@@ -79,6 +86,14 @@ interface Case {
 // Distinctive menu lines — if any appear, the model dumped the menu. Used to
 // assert the menu is NOT stapled onto a reply that already answered.
 const MENU_FINGERPRINT = /find me a buddy|who is here|free for 30|opt out|see this menu/i;
+
+// A claim that a side effect ALREADY happened. For cancel/edit messages where
+// the user hosts nothing — and which the harness, not the LLM, executes — any of
+// these in the LLM's free text is a fabricated success (the hallucination hole).
+// The safe replies (the menu, or "I can't do that directly") contain none of
+// these: the menu says "cancel"/"create", not "cancelled"/"created".
+const SUCCESS_CLAIM =
+  /\b(cancell?ed|scrapped|deleted|removed|calls?\s+off|called\s+off|moved|updated|booked|scheduled|pinged|all set)\b|c['’]est\s+(annul[ée]e?|fait|cr[ée]{1,2})|\bannul[ée]e?\b/i;
 
 const CASES: Case[] = [
   { name: "help → menu, no marker", message: "help", expectMarker: null },
@@ -122,16 +137,47 @@ const CASES: Case[] = [
       'Reply with a one-line preview then an `edit_event` marker {"kind":"edit_event","changes":{...}} carrying only changed fields. Do NOT include an eventId.',
   },
   {
-    name: "tell me about Online Tribes → pitch, no marker",
+    // A venture pitch now ends with a founder-contact offer + a
+    // share_founder_contact marker (the harness sends contacts on the Yes button).
+    name: "tell me about Online Tribes → pitch + founder-contact marker",
     message: "tell me about Online Tribes",
-    expectMarker: null,
+    expectMarker: "share_founder_contact",
     mustMatch: /online tribes|community|franek/i,
   },
   {
-    name: "what is Omnia → pitch, no marker",
+    name: "what is Omnia → pitch + founder-contact marker",
     message: "what is Omnia?",
-    expectMarker: null,
+    expectMarker: "share_founder_contact",
     mustMatch: /omnia|leads?|outreach|sales/i,
+  },
+  // ── Hallucination guardrail: cancel/edit when the user hosts NO event ───────
+  // u_self hosts nothing (every event in the block is someone else's), and
+  // cancel/edit are harness-handled. So if a phrasing falls through to the LLM,
+  // it must NOT fabricate a completed action — it should deflect (menu / "I
+  // can't do that directly"), never claim success.
+  {
+    name: "cancel, no event hosted → no fabricated success",
+    message: "cancel my breakfast event",
+    expectMarker: null,
+    mustNotMatch: SUCCESS_CLAIM,
+  },
+  {
+    name: "unmatched cancel verb 'scrap' → no fabricated success",
+    message: "scrap my breakfast event",
+    expectMarker: null,
+    mustNotMatch: SUCCESS_CLAIM,
+  },
+  {
+    name: "unmatched cancel verb 'call off' → no fabricated success",
+    message: "call off the dinner I'm hosting tomorrow",
+    expectMarker: null,
+    mustNotMatch: SUCCESS_CLAIM,
+  },
+  {
+    name: "edit, no event + not in EDIT mode → no fabricated success",
+    message: "change the time of my dinner to 9pm",
+    expectMarker: null,
+    mustNotMatch: SUCCESS_CLAIM,
   },
 ];
 
@@ -143,8 +189,16 @@ interface CheckResult {
 async function main(): Promise<void> {
   const { runChat } = await import("./llm.js");
   const { parseActionMarker } = await import("./actions.js");
+  // Import the REAL production guardrails so the eval validates the system
+  // (model + harness), not just the raw model output.
+  const { isTopicBrowse, guardFabricatedSuccess } = await import("./brain.js");
 
-  console.log(`[eval] model=${process.env.LOCAL_CHAT_MODEL ?? "(default)"} temp=${process.env.LOCAL_TEMPERATURE ?? "0.2"} backend=local\n`);
+  const backend = process.env.LLM_BACKEND ?? "local";
+  const model =
+    backend === "anthropic"
+      ? (process.env.CLAUDE_MODEL ?? "claude-haiku-4-5")
+      : (process.env.LOCAL_CHAT_MODEL ?? "(default)");
+  console.log(`[eval] model=${model} temp=${process.env.LOCAL_TEMPERATURE ?? "0.2"} backend=${backend}\n`);
 
   let passed = 0;
   for (const c of CASES) {
@@ -156,7 +210,10 @@ async function main(): Promise<void> {
         system: [BASE_SYSTEM_PROMPT, DIRECTORY_BLOCK, c.eventsBlock ?? EVENTS_BLOCK, volatileBlock(c.volatileExtra ?? "")],
         user: c.message,
         maxTokens: 400,
-        expectAction: c.expectMarker === "create_event" || c.expectMarker === "edit_event",
+        expectAction:
+          c.expectMarker === "create_event" ||
+          c.expectMarker === "edit_event" ||
+          c.expectMarker === "share_founder_contact",
       });
       raw = text;
     } catch (e) {
@@ -169,7 +226,18 @@ async function main(): Promise<void> {
       res.ok = false;
       res.notes.push(`ERROR: ${err}`);
     } else {
-      const { reply, action } = parseActionMarker(raw);
+      let { reply, action } = parseActionMarker(raw);
+
+      // Mirror the production post-Claude backstops so the eval measures what the
+      // USER actually gets (model + guardrails): drop out-of-mode and topic-browse
+      // markers, then swallow any fabricated success. A raw model may still
+      // hallucinate "Cancelled." — the system must not surface it.
+      const inEditMode = (c.volatileExtra ?? "").includes("EDIT_EVENT_MODE");
+      const inEventMode = (c.volatileExtra ?? "").includes("EVENT_CREATION_MODE");
+      if (action?.kind === "edit_event" && !inEditMode) action = null;
+      if (action?.kind === "create_event" && !inEventMode) action = null;
+      if (action?.kind === "intro_buddy" && isTopicBrowse(c.message)) action = null;
+      reply = guardFabricatedSuccess(reply, !!action, "en");
 
       if (reply.length > MAX_REPLY_CHARS) {
         res.ok = false;

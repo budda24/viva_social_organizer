@@ -14,10 +14,10 @@
  *
  * Backend selection via LLM_BACKEND:
  *   - "local-first" (default): try local, fall back to Anthropic on hard failure.
- *   - "local":                 local only — a local outage throws, EXCEPT a
- *                              mandatory-action turn (expectAction) the local
- *                              model can't format, which still falls back to
- *                              Anthropic so create/edit-event never dead-ends.
+ *   - "local":                 local ONLY — never calls the Anthropic API. Any
+ *                              local failure (incl. a mandatory-action marker
+ *                              miss, after an extra local retry) throws so the
+ *                              poller can requeue. This is the production mode.
  *   - "anthropic":             skip local entirely (one-line rollback).
  */
 
@@ -121,14 +121,13 @@ export async function runChat(opts: ChatOpts): Promise<ChatResult> {
           console.warn(`[llm] local marker miss (attempt ${attempt}/${localAttempts}), retrying local`);
           continue;
         }
-        // In pure-"local" mode we normally surface a local outage rather than pay
-        // for Anthropic. The ONE exception: a mandatory-action turn the local model
-        // can't format — rescue it via Haiku so a tester's "create event" (or
-        // "edit event") never dead-ends with "unable to…".
-        const rescueMandatoryAction = !!opts.expectAction && markerMiss;
-        if (LLM_BACKEND === "local" && !rescueMandatoryAction) throw err;
+        // Pure-"local" mode NEVER calls the Anthropic API — surface the failure
+        // so the poller can requeue/retry. A mandatory-action marker miss already
+        // got an extra local retry above; if it still misses we fail rather than
+        // hit a paid API. Only "local-first" falls back to Anthropic.
+        if (LLM_BACKEND === "local") throw err;
         console.warn(`[llm] local failed, falling back to anthropic: ${message}`);
-        break; // fall through to Anthropic
+        break; // fall through to Anthropic (local-first only)
       }
     }
   }

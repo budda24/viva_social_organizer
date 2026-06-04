@@ -139,12 +139,20 @@ export interface BtnLabels {
   yesCreate: string; // confirm an event-creation proposal
   yesCancel: string; // confirm cancelling an event you host
   yesEdit: string; // confirm an edit to an event you host
+  yesShare: string; // confirm sharing Franek's contact after a venture pitch
   no: string;
   connect: string; // accept an incoming intro request
   pass: string; // decline an incoming intro request
   join: string; // RSVP to a broadcast event
   edit: string; // "Edit" — prefixes an event title in the `my events` list
   cancelEvt: string; // "Cancel" — prefixes an event title in the `my events` list
+  introTo: string; // "Intro:" — prefixes a name on `find me <topic>` results
+  // Quick-action buttons attached under the fallback menu. callback_data stays
+  // the canonical English command so the brain's recognizers match either language.
+  menuBuddy: string;
+  menuWhatsOn: string;
+  menuCreate: string;
+  menuWhoHere: string;
 }
 
 export interface Bundle {
@@ -171,6 +179,15 @@ export interface Bundle {
   introPassed: string;
   introRequestExpired: string;
   introBrowseNudge: string;
+  // Opener carried into the intro request when a member taps `🤝 Intro: <Name>`
+  // on a `find me <topic>` result (deterministic — no model turn). `topic` is
+  // what they searched (e.g. "a climate VC"); the generic form is the fallback
+  // when the topic didn't fit in the button's 64-byte callback_data.
+  introtoOpener: (topic: string) => string;
+  introtoOpenerGeneric: string;
+  // Franek's contact line, sent on `yes`/tap after a venture pitch's founder CTA.
+  // Same in both languages — it's contact info.
+  founderContact: string;
   contactReachesOut: (name: string) => string;
   langPrompt: string;
   // Short prompt shown alongside the 🇬🇧/🇫🇷 buttons on Telegram (no "reply" text).
@@ -280,6 +297,14 @@ const EN: Bundle = {
   introRequestExpired:
     "That request expired — the other person isn't reachable.",
   introBrowseNudge: "Want an intro? Reply `intro me to` and their name.",
+  introtoOpener: (topic) =>
+    `Keen to talk ${topic} at VivaTech — would love to connect.`,
+  introtoOpenerGeneric:
+    "Saw your profile in the Viva Tribe circle — would love to connect at VivaTech.",
+  founderContact:
+    "Reach Franek → LinkedIn: linkedin.com/in/franekjablonski · " +
+    "Book a call: calendly.com/team-omnia-inteligance/30min · " +
+    "WhatsApp: +48 606 904 443 · Email: franek@online-tribes.com",
   contactReachesOut: (name) => `${name} (they'll reach out to you)`,
   langPrompt:
     "Which language? Reply english or français.\n" +
@@ -389,12 +414,18 @@ const EN: Bundle = {
     yesCreate: "✅ Yes, create it",
     yesCancel: "✅ Yes, cancel it",
     yesEdit: "✅ Yes, update it",
+    yesShare: "✅ Yes, share",
     no: "✕ No",
     connect: "🤝 Connect",
     pass: "Pass",
     join: "🎟️ Join",
     edit: "✏️ Edit",
     cancelEvt: "🗑 Cancel",
+    introTo: "🤝 Intro:",
+    menuBuddy: "🤝 Find a buddy",
+    menuWhatsOn: "📅 What's on",
+    menuCreate: "➕ Create event",
+    menuWhoHere: "👥 Who is here",
   },
   menu:
     "Here's what I can do:\n" +
@@ -450,6 +481,14 @@ const FR: Bundle = {
   introRequestExpired:
     "Cette demande a expiré — la personne n'est plus joignable.",
   introBrowseNudge: "Envie d'une intro ? Réponds `intro me to` suivi de son nom.",
+  introtoOpener: (topic) =>
+    `Envie d'échanger sur ${topic} à VivaTech — ravi·e de me connecter.`,
+  introtoOpenerGeneric:
+    "J'ai vu ton profil dans le cercle Viva Tribe — ravi·e de me connecter à VivaTech.",
+  founderContact:
+    "Reach Franek → LinkedIn: linkedin.com/in/franekjablonski · " +
+    "Book a call: calendly.com/team-omnia-inteligance/30min · " +
+    "WhatsApp: +48 606 904 443 · Email: franek@online-tribes.com",
   contactReachesOut: (name) => `${name} (il/elle te recontactera)`,
   langPrompt:
     "Quelle langue ? Répondez english ou français.\n" +
@@ -560,12 +599,18 @@ const FR: Bundle = {
     yesCreate: "✅ Oui, créer",
     yesCancel: "✅ Oui, annuler",
     yesEdit: "✅ Oui, modifier",
+    yesShare: "✅ Oui, partage",
     no: "✕ Non",
     connect: "🤝 Se connecter",
     pass: "Passer",
     join: "🎟️ Participer",
     edit: "✏️ Modifier",
     cancelEvt: "🗑 Annuler",
+    introTo: "🤝 Intro :",
+    menuBuddy: "🤝 Trouver un binôme",
+    menuWhatsOn: "📅 À venir",
+    menuCreate: "➕ Créer un événement",
+    menuWhoHere: "👥 Qui est là",
   },
   menu:
     "Voici ce que je peux faire :\n" +

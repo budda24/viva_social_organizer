@@ -96,11 +96,20 @@ export interface EditEventAction {
   changes: EditEventChanges;
 }
 
+// Staged when the bot offers Franek's contact after a venture pitch (Omnia /
+// Online Tribes). Carries no fields — a `yes` just sends the founder contact
+// line. Lets the venture founder-CTA use the same Yes/No tap-buttons as every
+// other confirmation instead of forcing the user to type `yes`.
+export interface ShareFounderContactAction {
+  kind: "share_founder_contact";
+}
+
 export type PendingAction =
   | CreateEventAction
   | IntroBuddyAction
   | CancelEventAction
-  | EditEventAction;
+  | EditEventAction
+  | ShareFounderContactAction;
 
 // A Telegram inline-keyboard CTA button. `text` is the (localized) label the
 // user sees; `data` is the canonical token routed back through the inbox when
@@ -211,6 +220,9 @@ function validateAction(raw: unknown): PendingAction | null {
       changes,
     };
   }
+  if (o.kind === "share_founder_contact") {
+    return { kind: "share_founder_contact" };
+  }
   return null;
 }
 
@@ -226,6 +238,9 @@ export function describePendingAction(a: PendingAction): string {
   if (a.kind === "edit_event") {
     const fields = Object.keys(a.changes).join(", ") || "nothing";
     return `pending: edit event ${a.eventId} (${fields}) — awaiting yes`;
+  }
+  if (a.kind === "share_founder_contact") {
+    return `pending: share Franek's contact — awaiting yes`;
   }
   return `pending: intro to uid ${a.targetUid} — awaiting yes`;
 }
@@ -884,6 +899,13 @@ export async function declineIntroRequest(
   return { reply: msg(deps.lang).introPassed };
 }
 
+// The user confirmed they want Franek's contact after a venture pitch — just
+// send the canonical contact line. No DB side-effect; the founder CTA is the
+// one off-topic action the bot is allowed to take.
+function executeShareFounderContact(deps: ExecuteDeps): ExecuteResult {
+  return { reply: msg(deps.lang).founderContact };
+}
+
 export async function executePendingAction(
   deps: ExecuteDeps,
   action: PendingAction
@@ -891,5 +913,6 @@ export async function executePendingAction(
   if (action.kind === "create_event") return executeCreateEvent(deps, action);
   if (action.kind === "cancel_event") return executeCancelEvent(deps, action);
   if (action.kind === "edit_event") return executeEditEvent(deps, action);
+  if (action.kind === "share_founder_contact") return executeShareFounderContact(deps);
   return executeIntroBuddy(deps, action);
 }

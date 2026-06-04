@@ -364,7 +364,7 @@ function formatParisDateTime(ms: number, lang: Lang = "en"): string {
   }).format(new Date(ms));
 }
 
-interface DirectoryMember {
+export interface DirectoryMember {
   uid: string;
   name: string;
   // Asked from the user during onboarding:
@@ -494,8 +494,14 @@ function isKnownIntent(body: string): boolean {
   if (/^\/?help\b/i.test(t)) return true;
   if (/^\/?stop\b/i.test(t)) return true;
   if (/\bfind me\b/i.test(t)) return true;
+  // French finds/intros. Without these a FR member mid-onboarding has real
+  // commands silently eaten as profile answers — observed live: "qui est là"
+  // (who is here) was treated as the answer to onboarding step 3/4.
+  if (/\btrouve[- ]?moi\b|\bpr[ée]sente[- ]?moi\b|\bmets[- ]?moi\s+en\s+relation\b|\bqui\s+devrais[- ]?je\s+rencontrer\b/i.test(t)) return true;
   if (/\bwho(?:'?s| is)?\s*(?:here|around)\b/i.test(t)) return true;
+  if (/\bqui\s+est\s+(?:l[àa]|ici|pr[ée]sent|dans\s+le\s+coin)\b/i.test(t)) return true;
   if (/\bfree\s+(?:for|now)\b/i.test(t)) return true;
+  if (/\b(?:libre|dispo(?:nible)?)\s+(?:pour|maintenant)\b/i.test(t)) return true;
   if (EXPLICIT_CREATE_RE.test(t) || /^\/event\b/i.test(t)) return true;
   // RSVP-status query — "have I signed in?", "am I in?", "which events am I in".
   if (RSVP_STATUS_RE.test(t)) return true;
@@ -503,6 +509,7 @@ function isKnownIntent(body: string): boolean {
   if (MY_EVENTS_QUERY_RE.test(t) && !EXPLICIT_CREATE_RE.test(t)) return true;
   if (CANCEL_EVENT_CMD_RE.test(t) || CANCELEVT_BTN_RE.test(t)) return true;
   if (EDIT_EVENT_CMD_RE.test(t) || EDITEVT_BTN_RE.test(t)) return true;
+  if (INTROTO_BTN_RE.test(t)) return true;
   // `join <event>` RSVP (text or Join-button token) — answer it even mid-onboarding
   // so a broadcast that lands before sign-up finishes isn't eaten as a profile answer.
   if (JOIN_CMD_RE.test(t)) return true;
@@ -518,11 +525,36 @@ function isKnownIntent(body: string): boolean {
 // it's excluded. The prompt says all this, but a local model occasionally emits
 // an `intro_buddy` marker on a topic browse anyway; we enforce the invariant in
 // code (see the backstop below) so a topic search never creates a pending action.
-function isTopicBrowse(body: string): boolean {
+export function isTopicBrowse(body: string): boolean {
   const t = body.trim();
   if (!/\bfind me\b/i.test(t)) return false;
   if (/\bfind\s+(?:me\s+)?(?:a\s+)?buddy\b/i.test(t)) return false;
   return true;
+}
+
+// ── Layer-2 hallucination backstop ──────────────────────────────────────────
+// A claim that a side effect ALREADY happened. The Claude path only PROPOSES
+// actions (gated behind a Yes/No button) or informs — it never COMPLETES one.
+// So a reply that asserts a finished action while carrying no valid action
+// marker is a fabrication: e.g. "Cancelled." for an event the user doesn't host,
+// when an off-vocabulary verb ("scrap", "call off") slipped past the router.
+// The safe replies (menu, deflection) contain none of these words — the menu
+// says "cancel"/"create", not "cancelled"/"created".
+export const SUCCESS_CLAIM =
+  /\b(cancell?ed|scrapped|deleted|removed|calls?\s+off|called\s+off|moved|updated|booked|scheduled|pinged|all set)\b|c['’]est\s+(annul[ée]e?|fait|cr[ée]{1,2})|\bannul[ée]e?\b/i;
+
+// If the model fabricated a completed action with nothing real behind it, swallow
+// the fake confirmation and fall back to the menu (what it should have said for a
+// request it can't fulfil). Model-agnostic: even a hallucinating model can't get
+// a false success past this. Legit proposals are exempt — they carry a marker
+// (hasAction=true) and their prose is a "confirm with yes" proposal, not a claim.
+export function guardFabricatedSuccess(
+  reply: string,
+  hasAction: boolean,
+  lang: Lang
+): string {
+  if (!hasAction && SUCCESS_CLAIM.test(reply)) return msg(lang).menu;
+  return reply;
 }
 
 // Strip a trailing confirm-CTA the model tacks on (EN + FR): "…? Reply `yes`."
@@ -531,12 +563,94 @@ function isTopicBrowse(body: string): boolean {
 // suggestion itself is preserved. Two uses: the topic-browse backstop below, and
 // producing the Telegram body where a Yes/No button replaces the text CTA.
 const TRAILING_YES_CTA_RE =
-  /\s*(?:[^.!\n]*?\?\s*)?(?:reply|r[ée]ponds?|confirm(?:\s+with)?|confirme(?:\s+avec)?)\s+[`'"]?(?:yes|oui)\b[`'"]?[^.!?\n]*[.!?]?\s*$/i;
+  /\s*(?:[^.!\n]*?\?\s*)?[`'"‘’]?\s*(?:reply|r[ée]ponds?|confirm(?:\s+with)?|confirme(?:\s+avec)?)\s+[`'"‘’]?(?:yes|oui)\b[`'"‘’]?[^.!?\n]*[.!?]?[`'"‘’]*\s*$/i;
 function stripYesCta(reply: string): string {
   const stripped = reply.replace(TRAILING_YES_CTA_RE, "").trim();
   // If stripping ate everything (CTA was the whole reply), keep the original —
   // an empty Telegram body would be rejected by the send path.
   return stripped || reply;
+}
+
+// The typed "reply `intro me to <name>`" nudge a browse closes with (EN + FR
+// nudges both spell the verb literally; the model is told to use it too). On
+// Telegram, tappable Intro buttons replace it, so we strip it from the Telegram
+// body — WhatsApp keeps it (Twilio has no buttons). We work sentence-by-sentence
+// (not line-by-line) because the model often appends the CTA in the same
+// paragraph as the suggestions — drop just the nudge sentences (incl. the
+// "Want an intro?" lead-in), keep the suggestions.
+const INTRO_NUDGE_SENTENCE_RE =
+  /\b(?:intro me to|pr[ée]sente[- ]moi|want an intro|envie d'une intro)\b/i;
+export function stripIntroNudge(reply: string): string {
+  const sentences = reply.match(/[^.!?\n]+[.!?]*\s*|\n+/g) ?? [reply];
+  const out = sentences
+    .filter((s) => !INTRO_NUDGE_SENTENCE_RE.test(s))
+    .join("")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+  // If the CTA was the whole reply, keep the original — an empty Telegram body
+  // would be rejected by the send path (and the buttons still carry the action).
+  return out || reply;
+}
+
+// "find me a climate VC" → "climate VC" (strip the verb and a leading article)
+// for use in the intro opener / button callback_data.
+export function introTopicFrom(body: string): string {
+  return body
+    .replace(/^.*?\bfind\s+me\b\s*/i, "")
+    .replace(/^(?:a|an|the|some)\s+/i, "")
+    .trim()
+    .slice(0, 40);
+}
+
+// Build tappable "🤝 Intro: <Name>" buttons for a `find me <topic>` browse: scan
+// the model's reply for member names from the directory it was given, in order
+// of appearance, deduped, capped at 3 so the result stays uncluttered. `topic`
+// (what they searched) rides in the callback_data so the tap's opener can name
+// it — trimmed to keep `introto <uid> <topic>` within Telegram's 64-byte cap.
+export function buildIntroButtons(
+  reply: string,
+  members: DirectoryMember[],
+  lang: Lang,
+  topic: string
+): OutboxButton[] {
+  const hay = reply.toLowerCase();
+  const found: { idx: number; uid: string; name: string }[] = [];
+  const seen = new Set<string>();
+  for (const m of members) {
+    const name = (m.name || "").trim();
+    if (!name || seen.has(m.uid)) continue;
+    const idx = hay.indexOf(name.toLowerCase());
+    if (idx < 0) continue;
+    seen.add(m.uid);
+    found.push({ idx, uid: m.uid, name });
+  }
+  found.sort((a, b) => a.idx - b.idx);
+  return found.slice(0, 3).map((m) => {
+    const room = 64 - `introto ${m.uid} `.length;
+    const t = topic.slice(0, Math.max(0, room)).trim();
+    const data = t ? `introto ${m.uid} ${t}` : `introto ${m.uid}`;
+    return { text: `${msg(lang).btn.introTo} ${m.name}`.slice(0, 60), data };
+  });
+}
+
+// True when the model emitted the fallback menu (it's told to send it verbatim).
+// Detected by the menu's distinctive first line so we can staple a few quick-
+// action tap-buttons under it on Telegram.
+export function isMenuReply(reply: string, lang: Lang): boolean {
+  const firstLine = msg(lang).menu.split("\n")[0]?.trim();
+  return !!firstLine && reply.includes(firstLine);
+}
+
+// The short quick-action button set under the fallback menu. callback_data is
+// the canonical English command (matched by isKnownIntent in either language);
+// only the label is localized. Kept to 4 so it never feels overwhelming.
+export function menuButtons(lang: Lang): OutboxButton[] {
+  return [
+    { text: msg(lang).btn.menuBuddy, data: "find me a buddy" },
+    { text: msg(lang).btn.menuWhatsOn, data: "what's on" },
+    { text: msg(lang).btn.menuCreate, data: "create event" },
+    { text: msg(lang).btn.menuWhoHere, data: "who is here" },
+  ];
 }
 
 // ── Directory pre-filter (event-scale fix) ──────────────────────────────────
@@ -1297,16 +1411,25 @@ const MY_EVENTS_QUERY_RE =
 // and got a hallucinated "cancelled!" reply with no actual write. `[\s_-]*` (not
 // `?`) still accepts the button/slash forms ("cancelevent", "cancel_event").
 const DETERMINER = "(?:(?:the|my|this|that|an?|le|la|les|mon|ma|mes|cet|cette)\\s+|l['’]\\s*)?";
+// Verb sets are deliberately wide — every common way to say cancel/edit — so an
+// off-vocabulary phrasing ("scrap my event", "call off the event") is handled
+// deterministically (resolve-or-deny) instead of falling through to Claude, which
+// fabricates a "Cancelled!" with no write. (Layer 2 guardFabricatedSuccess is the
+// catch-all for phrasings that omit the literal word "event" entirely.)
 const CANCEL_EVENT_CMD_RE = new RegExp(
-  `^\\s*/?(?:cancel|delete|remove|annuler|supprimer)[\\s_-]*${DETERMINER}(?:event|[ée]v[ée]nement)\\b[:\\s-]*(.*)$`,
+  `^\\s*/?(?:cancel(?:\\s+out)?|delete|remove|scrap|ditch|drop|kill|scratch|nix|call\\s+off|annuler?|supprimer?|retirer?|enl[èe]ver?)[\\s_-]*${DETERMINER}(?:event|[ée]v[ée]nement)\\b[:\\s-]*(.*)$`,
   "i"
 );
 const EDIT_EVENT_CMD_RE = new RegExp(
-  `^\\s*/?(?:edit|update|change|modifier|changer)[\\s_-]*${DETERMINER}(?:event|[ée]v[ée]nement)\\b[:\\s-]*(.*)$`,
+  `^\\s*/?(?:edit|update|change|move|reschedule|push|shift|rename|adjust|modifier?|changer?|d[ée]placer?|reporter?)[\\s_-]*${DETERMINER}(?:event|[ée]v[ée]nement)\\b[:\\s-]*(.*)$`,
   "i"
 );
 const CANCELEVT_BTN_RE = /^\s*cancelevt\s+(\S+)\s*$/i;
 const EDITEVT_BTN_RE = /^\s*editevt\s+(\S+)\s*$/i;
+// Tap-button on `find me <topic>` results: `introto <uid> <optional topic>`.
+// The topic (the thing they searched for) is carried so the opener can name it;
+// it's optional because the callback_data is capped at 64 bytes (Telegram).
+export const INTROTO_BTN_RE = /^\s*introto\s+(\S+)(?:\s+(.*))?$/i;
 
 // `byId` is true when the arg is a literal event id (button callback), false
 // when it's a typed title fragment.
@@ -1405,6 +1528,11 @@ async function buildMyEventsReply(
         neighborhood: String(e.addressNeighborhood ?? ""),
       };
     })
+    // Drop events whose day is already past. A doc stays status="scheduled" after
+    // its date (no auto-expiry), so without this a stale past event (observed:
+    // "Breakfast · 28 May") lingers in `my events` with live Edit/Cancel buttons
+    // it can't meaningfully act on. Keep today + future (and any without a date).
+    .filter((e) => !e.startAtMs || parisDateKey(e.startAtMs) >= parisDateKey(Date.now()))
     .sort((a, b) => a.startAtMs - b.startAtMs);
 
   if (mine.length === 0) {
@@ -1913,8 +2041,16 @@ export async function processMessage(deps: ProcessMessageDeps): Promise<void> {
   // `my events` (or "have I created any event?", "events I host", …) — list the
   // caller's own events with Edit/Cancel tap-buttons. The broader query form is
   // matched here, before LIST_EVENTS_RE, so first-person ownership questions
-  // aren't answered with the public what's-on list.
-  if (MY_EVENTS_QUERY_RE.test(body) && !EXPLICIT_CREATE_RE.test(body)) {
+  // aren't answered with the public what's-on list. But it also matches "my
+  // event" *inside* an edit/cancel command ("change my event to 6pm", "cancel my
+  // event Drinks"), so defer to those handlers — otherwise the command is eaten
+  // by the list and the user's actual change/cancel intent is dropped.
+  if (
+    MY_EVENTS_QUERY_RE.test(body) &&
+    !EXPLICIT_CREATE_RE.test(body) &&
+    !matchEditEvent(body).matched &&
+    !matchCancelEvent(body).matched
+  ) {
     const r = await buildMyEventsReply(db, uid, lang);
     await writeOutbox(db, {
       provider,
@@ -2042,22 +2178,85 @@ export async function processMessage(deps: ProcessMessageDeps): Promise<void> {
   // `edit event <title>` / button `editevt <id>` — resolve + ownership-check,
   // then park editEvent state and ask what to change. The next free-text turn is
   // routed to Claude in EDIT_EVENT_MODE (handled in the wizard block below).
+  // Mode flags + the body that actually reaches Claude. Declared here (above the
+  // edit handler) so an inline edit ("change my event to 6pm") can set them and
+  // fall straight through to the EDIT_EVENT_MODE Claude turn this same turn,
+  // skipping the extra "what should change?" round-trip.
+  let eventMode = false;
+  let editMode = false;
+  let editEventId: string | undefined;
+  let editEventData: Record<string, unknown> | undefined;
+  let claudeBody = body;
+
   const editCmd = matchEditEvent(body);
   if (editCmd.matched) {
-    const res = await resolveOwnedEvent(db, uid, editCmd.arg, editCmd.byId);
-    let reply: string;
+    let res = await resolveOwnedEvent(db, uid, editCmd.arg, editCmd.byId);
+    // Inline change — "change my event to start at 6pm" carries the change in the
+    // arg, not a title. If the arg didn't resolve as a title and the host owns
+    // exactly one event, treat the arg as the change and apply it this turn.
+    // (Button callbacks always carry a real event id, so are never reinterpreted.)
+    let inlineChange = "";
+    if (!editCmd.byId && !res.ok && res.reason === "notfound" && editCmd.arg.trim()) {
+      const sole = await resolveOwnedEvent(db, uid, "", false);
+      if (sole.ok) {
+        res = sole;
+        inlineChange = editCmd.arg.trim();
+      } else if (sole.reason === "ambiguous") {
+        res = sole; // host has several events — ask which one rather than guess.
+      }
+    }
     if (!res.ok) {
-      reply = ownedEventMissReply(res.reason, lang);
+      const reply = ownedEventMissReply(res.reason, lang);
+      await writeOutbox(db, { provider, uid, phone, chatId, body: reply, type: "edit_prompt" });
+      await appendTurns(db, uid, [
+        { role: "user", content: body, at: Timestamp.now() },
+        { role: "assistant", content: reply, at: Timestamp.now() },
+      ]);
+      await inboxDoc.ref.update({ intent: "edit_miss" });
+      return;
+    }
+    if (inlineChange) {
+      // Route straight into EDIT_EVENT_MODE with the change as the message.
+      editMode = true;
+      editEventId = res.event.id;
+      editEventData = res.event.data;
+      claudeBody = inlineChange;
     } else {
       await setEditEvent(db, uid, res.event.id);
-      reply = msg(lang).editPrompt(String(res.event.data.title ?? "the event"));
+      const reply = msg(lang).editPrompt(String(res.event.data.title ?? "the event"));
+      await writeOutbox(db, { provider, uid, phone, chatId, body: reply, type: "edit_prompt" });
+      await appendTurns(db, uid, [
+        { role: "user", content: body, at: Timestamp.now() },
+        { role: "assistant", content: reply, at: Timestamp.now() },
+      ]);
+      await inboxDoc.ref.update({ intent: "edit_started" });
+      return;
     }
-    await writeOutbox(db, { provider, uid, phone, chatId, body: reply, type: "edit_prompt" });
+  }
+
+  // `introto <uid> <topic>` — the tap-button shown next to each person on a
+  // `find me <topic>` result. Per the button-driven UX, tapping sends the intro
+  // request immediately (no extra Yes/No) — it's double opt-in, so nothing is
+  // shared until the recipient taps Connect. We build a deterministic opener
+  // (topic-aware when the search term rode along in the callback_data) and run
+  // the same intro path a typed `yes` would.
+  const introtoCmd = body.match(INTROTO_BTN_RE);
+  if (introtoCmd) {
+    const targetUid = introtoCmd[1];
+    const topic = (introtoCmd[2] ?? "").trim().slice(0, 60);
+    const opener = topic
+      ? msg(lang).introtoOpener(topic)
+      : msg(lang).introtoOpenerGeneric;
+    const result = await executePendingAction(
+      { db, uid, userData: userData as Record<string, unknown>, lang },
+      { kind: "intro_buddy", targetUid, opener }
+    );
+    await writeOutbox(db, { provider, uid, phone, chatId, body: result.reply, type: "introto" });
     await appendTurns(db, uid, [
       { role: "user", content: body, at: Timestamp.now() },
-      { role: "assistant", content: reply, at: Timestamp.now() },
+      { role: "assistant", content: result.reply, at: Timestamp.now() },
     ]);
-    await inboxDoc.ref.update({ intent: res.ok ? "edit_started" : "edit_miss" });
+    await inboxDoc.ref.update({ intent: "introto" });
     return;
   }
 
@@ -2075,12 +2274,6 @@ export async function processMessage(deps: ProcessMessageDeps): Promise<void> {
   // a create_event action marker which the existing post-Claude parser stores
   // as a pendingAction; the user then confirms with `yes` to actually write
   // the event + fan out the broadcast.
-  let eventMode = false;
-  let editMode = false;
-  let editEventId: string | undefined;
-  let editEventData: Record<string, unknown> | undefined;
-  let claudeBody = body;
-
   const createCmd = matchCreateEventCommand(body);
   if (createCmd.matched) {
     if (!createCmd.rest) {
@@ -2295,6 +2488,12 @@ export async function processMessage(deps: ProcessMessageDeps): Promise<void> {
     }
   }
 
+  // Layer-2 hallucination backstop (runs after every other marker backstop, so
+  // `action` here is the fully-validated set). A "Cancelled."/"Done." with no
+  // real action behind it is a fabrication — replace it with the menu so a fake
+  // success can never reach the user, on any model.
+  reply = guardFabricatedSuccess(reply, !!action, lang);
+
   if (action) {
     await setPendingAction(db, uid, action);
   }
@@ -2304,23 +2503,40 @@ export async function processMessage(deps: ProcessMessageDeps): Promise<void> {
     { role: "assistant", content: reply, at: Timestamp.now() },
   ]);
 
-  // When Claude proposes an action, offer Yes/No tap-buttons on Telegram (the
-  // tapped token is still "yes"/"no", so the pendingAction fast-path resolves it
-  // unchanged) and drop the now-redundant "Reply yes" text from the Telegram body.
+  // Telegram tap-buttons. Three mutually-exclusive cases:
+  //  • an action proposal → Yes/No confirm (ephemeral; the tapped token is still
+  //    "yes"/"no" so the pendingAction fast-path resolves it unchanged), dropping
+  //    the now-redundant "Reply yes" text from the Telegram body;
+  //  • a `find me <topic>` browse → a "🤝 Intro: <Name>" button per suggestion so
+  //    the intro is one tap, not a typed `intro me to <name>` (persistent);
+  //  • the fallback menu → a few quick-action buttons (persistent).
+  // WhatsApp (Twilio) ignores buttons and keeps the typed CTA in the body.
   let buttons: OutboxButton[] | undefined;
   let telegramBody: string | undefined;
+  let ephemeralKeyboard = false;
   if (action) {
     const yesLabel =
       action.kind === "create_event"
         ? msg(lang).btn.yesCreate
         : action.kind === "edit_event"
           ? msg(lang).btn.yesEdit
-          : msg(lang).btn.yesPing;
+          : action.kind === "share_founder_contact"
+            ? msg(lang).btn.yesShare
+            : msg(lang).btn.yesPing;
     buttons = [
       { text: yesLabel, data: "yes" },
       { text: msg(lang).btn.no, data: "no" },
     ];
     telegramBody = stripYesCta(reply);
+    ephemeralKeyboard = true;
+  } else if (isTopicBrowse(body)) {
+    const introButtons = buildIntroButtons(reply, relevantMembers, lang, introTopicFrom(body));
+    if (introButtons.length > 0) {
+      buttons = introButtons;
+      telegramBody = stripIntroNudge(reply); // WhatsApp body keeps the typed nudge
+    }
+  } else if (isMenuReply(reply, lang)) {
+    buttons = menuButtons(lang);
   }
 
   await writeOutbox(db, {
@@ -2331,7 +2547,7 @@ export async function processMessage(deps: ProcessMessageDeps): Promise<void> {
     body: reply,
     telegramBody,
     buttons,
-    ephemeralKeyboard: !!buttons,
+    ephemeralKeyboard,
     type: action ? "action_proposed" : "bot_reply",
   });
 

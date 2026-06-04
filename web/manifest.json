@@ -2,7 +2,7 @@
     "name": "viva_social_organizer",
     "short_name": "viva_social_organizer",
     "start_url": ".",
-    "display": "standalone",
+    "display": "browser",
     "background_color": "#0175C2",
     "theme_color": "#0175C2",
     "description": "VivaTech Social Organizer member portal",
