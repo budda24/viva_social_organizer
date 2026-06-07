@@ -35,14 +35,15 @@ const MAX_REPLY_CHARS = 1200;
 const SOFT_REPLY_CHARS = 280;
 
 // A small synthetic directory with real-looking uids the model can cite.
-const DIRECTORY_UIDS = ["u_alice", "u_bjorn", "u_chen", "u_dana", "u_evan"];
+const DIRECTORY_UIDS = ["u_alice", "u_bjorn", "u_chen", "u_dana", "u_evan", "u_sam"];
 const DIRECTORY_BLOCK = `## Member directory
 
 - Alice Chen (uid u_alice) — founder, climate-tech; enriched topics: carbon accounting, grid software; energy: 1on1; looking for: technical co-founder
 - Bjorn Ek (uid u_bjorn) — VC at Northvolt Ventures; enriched topics: AI infra, climate, hardware; energy: group; wants to meet: deep-tech founders
 - Wei Chen (uid u_chen) — staff engineer, AI infra; enriched topics: LLM serving, GPUs, inference; energy: 1on1; looking for: infra co-founder
 - Dana Ortiz (uid u_dana) — growth lead, marketplaces; enriched topics: B2B SaaS, PLG, fintech; energy: group; wants to meet: early-stage operators
-- Evan Park (uid u_evan) — designer, consumer; enriched topics: design systems, agents, UX; energy: 1on1; looking for: design partner customers`;
+- Evan Park (uid u_evan) — designer, consumer; enriched topics: design systems, agents, UX; energy: 1on1; looking for: design partner customers
+- Sam Rivera (uid u_sam) — founder, climate-fintech startup; enriched topics: carbon markets, payments; energy: 1on1; wants to meet: climate VCs, carbon-market experts`;
 
 // A small synthetic upcoming-events list, mirroring the block brain.ts injects.
 const EVENTS_BLOCK = `## Upcoming events (scheduled, soonest first — Paris time)
@@ -116,7 +117,27 @@ const CASES: Case[] = [
     // …WITHOUT stapling the whole menu in front of the answer (the regressed bug).
     mustNotMatch: MENU_FINGERPRINT,
   },
-  { name: "find me an AI VC → suggestions, no marker", message: "find me an AI VC", expectMarker: null },
+  {
+    // Role direction: the only VC in the directory (Bjorn) is a climate/deep-tech
+    // fund, not clearly an AI VC — so surfacing him OR honestly saying "no exact AI
+    // VC, want a buddy?" are both fine. What must NEVER happen: matching Wei, an
+    // AI-infra ENGINEER, just because the AI topic overlaps. That's the bug.
+    name: "find me an AI VC → never the AI engineer",
+    message: "find me an AI VC",
+    expectMarker: null,
+    mustNotMatch: /wei chen|u_chen/i,
+  },
+  {
+    // Regression for the live role-blind bug: "climate VC" must pick the climate
+    // INVESTOR (Bjorn, VC at Northvolt, climate in topics), NOT a climate FOUNDER
+    // (Alice) and NOT Sam — a founder whose "wants to meet: climate VCs" is the
+    // inverse direction (he's hunting a VC, he isn't one). Both are wrong-way matches.
+    name: "find me a climate VC → the VC, not a founder seeking VCs",
+    message: "find me a climate VC",
+    expectMarker: null,
+    mustMatch: /bjorn|northvolt/i,
+    mustNotMatch: /alice|sam rivera/i,
+  },
   { name: "off-topic → menu, no marker", message: "what do you think about the weather?", expectMarker: null },
   { name: "find me a buddy → intro_buddy marker", message: "find me a buddy", expectMarker: "intro_buddy" },
   { name: "intro me to Wei Chen → intro_buddy marker", message: "intro me to Wei Chen", expectMarker: "intro_buddy" },
@@ -191,7 +212,7 @@ async function main(): Promise<void> {
   const { parseActionMarker } = await import("./actions.js");
   // Import the REAL production guardrails so the eval validates the system
   // (model + harness), not just the raw model output.
-  const { isTopicBrowse, guardFabricatedSuccess } = await import("./brain.js");
+  const { isTopicBrowse, guardFabricatedSuccess, investorRoleDirective } = await import("./brain.js");
 
   const backend = process.env.LLM_BACKEND ?? "local";
   const model =
@@ -206,8 +227,15 @@ async function main(): Promise<void> {
     let raw = "";
     let err: string | null = null;
     try {
+      const roleDirective = investorRoleDirective(c.message);
       const { text } = await runChat({
-        system: [BASE_SYSTEM_PROMPT, DIRECTORY_BLOCK, c.eventsBlock ?? EVENTS_BLOCK, volatileBlock(c.volatileExtra ?? "")],
+        system: [
+          BASE_SYSTEM_PROMPT,
+          DIRECTORY_BLOCK,
+          c.eventsBlock ?? EVENTS_BLOCK,
+          volatileBlock(c.volatileExtra ?? ""),
+          ...(roleDirective ? [roleDirective] : []),
+        ],
         user: c.message,
         maxTokens: 400,
         expectAction:

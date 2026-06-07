@@ -1049,6 +1049,26 @@ function buildContextBlock(args: {
   return lines.join("\n");
 }
 
+// `find me … VC/investor/angel/fund …`. Investor search is the marquee query at
+// VivaTech, and the static prompt rule alone doesn't reliably stop the local 14B
+// from picking a strong *topic* match of the wrong role (e.g. an AI-infra engineer
+// for "AI VC") or someone who is merely *seeking* a VC. When we detect an investor
+// query we inject a high-salience per-turn directive as the LAST system block so
+// the model weights role over topic. Scoped to the investor direction on purpose —
+// it only fires on explicit investor language, so it can't mis-filter other browses.
+const INVESTOR_QUERY_RE =
+  /\bfind\s+me\b.*\b(vc|vcs|venture\s+capitalists?|investors?|angels?|\blps?\b|limited\s+partners?|funds?)\b/i;
+
+export function investorRoleDirective(userMessage: string): string {
+  if (!INVESTOR_QUERY_RE.test(userMessage)) return "";
+  return [
+    "# ROLE FILTER (this turn only)",
+    "The user is looking for an INVESTOR (VC / angel / fund). Suggest ONLY directory members who THEMSELVES invest — their bio/company names a fund, capital, ventures, partners, angel, or says investor/VC.",
+    "A founder, operator, or engineer is NOT a match, however perfectly their topic overlaps. Someone whose `looking for`/`wants to meet` mentions VCs is the OPPOSITE side (they're hunting a VC, they aren't one) — exclude them.",
+    "If NO member actually invests, say so in ONE line and offer `find me a buddy`. Never substitute a non-investor.",
+  ].join("\n");
+}
+
 async function runClaude(
   userMessage: string,
   directoryBlock: string,
@@ -1061,8 +1081,15 @@ async function runClaude(
   // self, history) is not. The local backend gets these joined into one system
   // message; the Anthropic fallback applies ephemeral cache_control to all but the
   // last block (see llm.ts), so only the volatile block falls outside the cache.
+  const roleDirective = investorRoleDirective(userMessage);
   const { text } = await runChat({
-    system: [BASE_SYSTEM_PROMPT, directoryBlock, eventsBlock, volatileBlock],
+    system: [
+      BASE_SYSTEM_PROMPT,
+      directoryBlock,
+      eventsBlock,
+      volatileBlock,
+      ...(roleDirective ? [roleDirective] : []),
+    ],
     user: userMessage,
     maxTokens: 400,
     // In EVENT_CREATION_MODE a create_event marker is mandatory — let a markerless
