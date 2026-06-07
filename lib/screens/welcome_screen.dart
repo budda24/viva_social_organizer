@@ -10,6 +10,7 @@ import '../data/sample_data.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_theme.dart';
 import '../utils/open_link.dart';
+import '../utils/ref_tracking.dart';
 import '../widgets/app_scaffold.dart';
 import '../widgets/chat_buttons.dart';
 import '../widgets/mini_speaker_card.dart';
@@ -155,10 +156,16 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
       final callable = FirebaseFunctions.instanceFor(
         region: 'europe-central2',
       ).httpsCallable('linkedinSignIn');
-      final res = await callable.call(<String, String>{
+      final payload = <String, String>{
         'code': code,
         'redirectUri': redirectUri,
-      });
+      };
+      // Pass the acquisition tag captured at app start (survives the OAuth
+      // round-trip via localStorage); the function stores it as first-touch
+      // `source` on new users. Omitted when there was no `?ref=`.
+      final ref = capturedRefTag();
+      if (ref != null) payload['ref'] = ref;
+      final res = await callable.call(payload);
 
       final data = Map<String, dynamic>.from(res.data as Map);
       final token = data['customToken'] as String?;

@@ -51,11 +51,21 @@ function fullName(u: LinkedInUserInfo): string {
   return joined || "";
 }
 
+// Acquisition channel from the web `?ref=` tag (e.g. "linkedin-dm",
+// "omnia-outreach", "qr-badge"). Stored once, at user creation (first-touch
+// attribution). Sanitized to a short safe slug; empty/garbage → "direct".
+function sanitizeSource(raw: string): string {
+  const cleaned = raw.replace(/[^A-Za-z0-9._-]/g, "").slice(0, 64);
+  return cleaned || "direct";
+}
+
 export const linkedinSignIn = onCall(
   { secrets: [LINKEDIN_CLIENT_ID, LINKEDIN_CLIENT_SECRET] },
   async (req) => {
     const code = String(req.data?.code ?? "").trim();
     const redirectUri = String(req.data?.redirectUri ?? "").trim();
+    // Acquisition channel tag captured from the web `?ref=` param (first-touch).
+    const source = sanitizeSource(String(req.data?.ref ?? ""));
     if (!code || !redirectUri) {
       throw new HttpsError(
         "invalid-argument",
@@ -172,6 +182,11 @@ export const linkedinSignIn = onCall(
         ...profile,
         role: "member",
         status: "approved",
+        // First-touch acquisition channel (from the web `?ref=` tag). Set ONLY
+        // here, on creation — never overwritten on later logins — so per-channel
+        // signup counts stay accurate. Query ad-hoc: users where source == "x".
+        source,
+        sourceAt: FieldValue.serverTimestamp(),
         createdAt: FieldValue.serverTimestamp(),
         lastLoginAt: FieldValue.serverTimestamp(),
         enrichment: { status: "pending" },

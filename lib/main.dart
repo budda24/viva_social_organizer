@@ -10,6 +10,7 @@ import 'screens/members_screen.dart';
 import 'screens/pitches_screen.dart';
 import 'screens/welcome_screen.dart';
 import 'theme/app_theme.dart';
+import 'utils/ref_tracking.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -17,6 +18,9 @@ void main() async {
   // /auth/linkedin/callback with a clean URI that matches what we registered
   // in the LinkedIn dev portal.
   usePathUrlStrategy();
+  // Capture the `?ref=` acquisition tag NOW, before LinkedIn's OAuth round-trip
+  // replaces the query string — stashed in localStorage, read back on sign-in.
+  captureRefTag();
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
   runApp(const VivaTribeApp());
 }
