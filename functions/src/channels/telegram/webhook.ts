@@ -45,6 +45,15 @@ interface TgMessage {
   chat: TgChat;
   text?: string;
   voice?: { file_id: string; duration?: number; mime_type?: string };
+  // Non-text, non-voice attachments — we don't process these, but we detect them
+  // so the bot can reply gracefully instead of going silent.
+  photo?: unknown[];
+  document?: unknown;
+  video?: unknown;
+  audio?: unknown;
+  sticker?: unknown;
+  animation?: unknown;
+  video_note?: unknown;
 }
 interface TgCallbackQuery {
   id: string;
@@ -107,11 +116,23 @@ export const telegramWebhook = onRequest(
     }
 
     const message = update?.message;
-    // Accept text OR a voice note (the laptop brain transcribes voice locally).
+    // A non-text, non-voice attachment (photo/file/sticker/…) we can't process —
+    // detected so the brain can reply gracefully rather than dropping it silently.
+    const hasAttachment = !!(
+      message &&
+      (message.photo ||
+        message.document ||
+        message.video ||
+        message.audio ||
+        message.sticker ||
+        message.animation ||
+        message.video_note)
+    );
+    // Accept text, a voice note (transcribed locally), or an attachment (nudged).
     if (
       !message ||
       message.chat.type !== "private" ||
-      (!message.text && !message.voice)
+      (!message.text && !message.voice && !hasAttachment)
     ) {
       res.status(200).send("ok");
       return;
@@ -120,6 +141,7 @@ export const telegramWebhook = onRequest(
     const chatId = message.chat.id;
     const text = message.text ? message.text.trim() : "";
     const voiceFileId: string | undefined = message.voice?.file_id;
+    const isAttachment = !text && !voiceFileId && hasAttachment;
     const username = message.from?.username;
     const displayName =
       [message.from?.first_name, message.from?.last_name].filter(Boolean).join(" ") ||
@@ -229,6 +251,7 @@ export const telegramWebhook = onRequest(
         uid: user.uid,
         body: text,
         voiceFileId: voiceFileId ?? null,
+        attachment: isAttachment,
         receivedAt: FieldValue.serverTimestamp(),
         status: "pending",
         attempts: 0,

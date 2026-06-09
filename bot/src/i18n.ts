@@ -279,6 +279,8 @@ export interface Bundle {
   connectionsList: (lines: string[]) => string;
   // A bare greeting ("hi"/"hello") — warm hello + one-line intro, shown above the menu.
   greetingIntro: string;
+  // User sent a photo/file/sticker the bot can't read — nudge them to text or voice.
+  attachmentUnsupported: string;
 }
 
 const EN: Bundle = {
@@ -490,6 +492,8 @@ const EN: Bundle = {
   connectionsList: (lines) => `Here are your connections:\n${lines.join("\n")}`,
   greetingIntro:
     "Hey! 👋 I'm Tribu — I help you meet the right humans at VivaTech: your first 5 real connections, not your first 500 followers.",
+  attachmentUnsupported:
+    "I can't open files or photos 📎 — just tell me what you're looking for in words, or send a voice note. Reply `help` to see what I can do.",
 };
 
 const FR: Bundle = {
@@ -702,6 +706,8 @@ const FR: Bundle = {
   connectionsList: (lines) => `Voici tes connexions :\n${lines.join("\n")}`,
   greetingIntro:
     "Salut ! 👋 Je suis Tribu — je t'aide à rencontrer les bonnes personnes à VivaTech : tes 5 vraies rencontres, pas tes 500 premiers abonnés.",
+  attachmentUnsupported:
+    "Je ne peux pas ouvrir les fichiers ou photos 📎 — dis-moi simplement ce que tu cherches, ou envoie un message vocal. Réponds `help` pour voir ce que je sais faire.",
 };
 
 export function msg(lang: Lang): Bundle {

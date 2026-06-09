@@ -1812,6 +1812,26 @@ export async function processMessage(deps: ProcessMessageDeps): Promise<void> {
     }
   }
 
+  // Non-text, non-voice attachment (photo/file/sticker) flagged by the webhook —
+  // we can't read files; nudge them to text or a voice note instead of going
+  // silent (Shah, Jun 9: "what should happen when you send an attachment?").
+  if (!body && !voiceFileId && inbox.attachment === true) {
+    await writeOutbox(db, {
+      provider,
+      uid,
+      phone,
+      chatId,
+      body: msg(lang).attachmentUnsupported,
+      type: "attachment_unsupported",
+    });
+    await appendTurns(db, uid, [
+      { role: "user", content: "[attachment]", at: Timestamp.now() },
+      { role: "assistant", content: msg(lang).attachmentUnsupported, at: Timestamp.now() },
+    ]);
+    await inboxDoc.ref.update({ intent: "attachment_unsupported" });
+    return;
+  }
+
   if (!body) {
     await inboxDoc.ref.update({ intent: "empty" });
     return;
