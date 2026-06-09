@@ -1633,6 +1633,16 @@ export async function buildWhatsOnReply(
     const empty = msg(lang).whatsOnEmpty;
     return { body: empty, telegramBody: empty };
   }
+  // Events the caller already RSVP'd to ("going") — don't offer Join again; tag
+  // the line instead (Shah, Jun 8: "join button should not appear with that event").
+  const joinedSnap = await db
+    .collectionGroup("rsvps")
+    .where("uid", "==", uid)
+    .where("status", "==", "going")
+    .get();
+  const joinedIds = new Set(
+    joinedSnap.docs.map((d) => d.ref.parent.parent?.id).filter(Boolean) as string[]
+  );
   const lines = [msg(lang).whatsOnHeader];
   const buttons: OutboxButton[] = [];
   const nowMs = Date.now();
@@ -1641,13 +1651,17 @@ export async function buildWhatsOnReply(
     const meta = [when, e.addressNeighborhood].filter(Boolean).join(" · ");
     const live = e.startAtMs > 0 && e.startAtMs <= nowMs;
     const tag = live ? (lang === "fr" ? "🔴 en cours · " : "🔴 now · ") : "";
-    // You can't join an event you host — you're already in as the host. Tag the
-    // line and skip its Join button (the screenshot bug where "Join Drink Night"
-    // showed up for the host of Drink Night).
+    // Skip the Join button for an event you host (you're in as host) OR one you've
+    // already joined — tag the line in both cases instead of offering Join again.
     const youHost = e.hostUid === uid;
-    const hostTag = youHost ? (lang === "fr" ? " · (tu organises)" : " · (you host)") : "";
-    lines.push(`- ${tag}${e.title}${meta ? ` · ${meta}` : ""}${hostTag}`);
-    if (!youHost) {
+    const joined = joinedIds.has(e.id);
+    const stateTag = youHost
+      ? (lang === "fr" ? " · (tu organises)" : " · (you host)")
+      : joined
+        ? (lang === "fr" ? " · (inscrit ✓)" : " · (going ✓)")
+        : "";
+    lines.push(`- ${tag}${e.title}${meta ? ` · ${meta}` : ""}${stateTag}`);
+    if (!youHost && !joined) {
       buttons.push({ text: `${msg(lang).btn.join} ${e.title}`.slice(0, 60), data: `join ${e.id}` });
     }
   }
