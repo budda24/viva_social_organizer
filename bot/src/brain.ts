@@ -1102,6 +1102,22 @@ export function investorRoleDirective(userMessage: string): string {
   ].join("\n");
 }
 
+// "who did you ping / who's invited / who got the invite / pinging members" — asked
+// after an event is created (the invite goes to everyone in the circle). The prompt
+// covers this, but the local model sometimes falls back to the menu (Shah, Jun 8),
+// so we force the who-is-here listing with a salient per-turn directive.
+const WHO_PINGED_RE =
+  /\b(?:who(?:m)?\s+(?:did|have|'ve)?\s*you\s+(?:ping|invite|notif\w*|tell|message)|who\s+got\s+the\s+invit|who'?s\s+invited|pinging\s+(?:the\s+)?members?|who\s+(?:are|were)\s+the\s+\w*\s*members?|qui\s+as[- ]?tu\s+(?:pr[ée]venu|invit[ée])|qui\s+est\s+invit[ée])/i;
+
+export function whoPingedDirective(userMessage: string): string {
+  if (!WHO_PINGED_RE.test(userMessage)) return "";
+  return [
+    "# DIRECTIVE (this turn only)",
+    "The user is asking who you pinged / invited for an event. Creating an event invites EVERYONE in the circle, so this just means 'who's in the circle'.",
+    "Answer EXACTLY like `who is here`: list 3–5 members from the Member directory, one short line each (name + what they do). Do NOT show the menu, do NOT describe the matcher, and emit no action marker.",
+  ].join("\n");
+}
+
 async function runClaude(
   userMessage: string,
   directoryBlock: string,
@@ -1114,14 +1130,17 @@ async function runClaude(
   // self, history) is not. The local backend gets these joined into one system
   // message; the Anthropic fallback applies ephemeral cache_control to all but the
   // last block (see llm.ts), so only the volatile block falls outside the cache.
-  const roleDirective = investorRoleDirective(userMessage);
+  const directives = [
+    investorRoleDirective(userMessage),
+    whoPingedDirective(userMessage),
+  ].filter(Boolean);
   const { text } = await runChat({
     system: [
       BASE_SYSTEM_PROMPT,
       directoryBlock,
       eventsBlock,
       volatileBlock,
-      ...(roleDirective ? [roleDirective] : []),
+      ...directives,
     ],
     user: userMessage,
     maxTokens: 400,

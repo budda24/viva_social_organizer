@@ -108,6 +108,15 @@ const CASES: Case[] = [
   { name: "help → menu, no marker", message: "help", expectMarker: null },
   { name: "who is here → browse, no marker", message: "who is here", expectMarker: null },
   {
+    // Shah (Jun 8 19:24): "asked for the pinging members but the menu appeared."
+    // "who did you ping" = who's in the circle → list members, never the menu.
+    name: "who did you ping → lists members, not the menu",
+    message: "who did you ping?",
+    expectMarker: null,
+    mustMatch: /alice|bjorn|wei|dana|evan|sam/i,
+    mustNotMatch: MENU_FINGERPRINT,
+  },
+  {
     name: "what's on → lists events, no marker",
     message: "which is the upcoming events?",
     expectMarker: null,
@@ -230,7 +239,7 @@ async function main(): Promise<void> {
   const { parseActionMarker } = await import("./actions.js");
   // Import the REAL production guardrails so the eval validates the system
   // (model + harness), not just the raw model output.
-  const { isTopicBrowse, guardFabricatedSuccess, investorRoleDirective, isBuddyIntent } = await import("./brain.js");
+  const { isTopicBrowse, guardFabricatedSuccess, investorRoleDirective, whoPingedDirective, isBuddyIntent } = await import("./brain.js");
   const { msg } = await import("./i18n.js");
 
   const backend = process.env.LLM_BACKEND ?? "local";
@@ -251,14 +260,17 @@ async function main(): Promise<void> {
       if (isBuddyIntent(c.message) && (c.noInterests ?? false)) {
         raw = msg("en").buddyAskInterest;
       } else {
-        const roleDirective = investorRoleDirective(c.message);
+        const directives = [
+          investorRoleDirective(c.message),
+          whoPingedDirective(c.message),
+        ].filter(Boolean);
         const { text } = await runChat({
           system: [
             BASE_SYSTEM_PROMPT,
             DIRECTORY_BLOCK,
             c.eventsBlock ?? EVENTS_BLOCK,
             volatileBlock(c.volatileExtra ?? "", c.noInterests ?? false),
-            ...(roleDirective ? [roleDirective] : []),
+            ...directives,
           ],
           user: c.message,
           maxTokens: 400,
