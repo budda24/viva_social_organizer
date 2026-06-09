@@ -36,6 +36,9 @@ import {
   declineIntroRequest,
   describePendingAction,
   executePendingAction,
+  contactHandle,
+  contactText,
+  linkedinUrlOf,
   isEventOngoing,
   isLockedForChanges,
   ONGOING_WINDOW_MS,
@@ -515,6 +518,8 @@ function isKnownIntent(body: string): boolean {
   if (EXPLICIT_CREATE_RE.test(t) || /^\/event\b/i.test(t)) return true;
   // RSVP-status query — "have I signed in?", "am I in?", "which events am I in".
   if (RSVP_STATUS_RE.test(t)) return true;
+  // "my connections / my contacts" — people you've connected with.
+  if (MY_CONNECTIONS_RE.test(t)) return true;
   // Owner event management — `my events`, edit/cancel (typed or button callback).
   if (MY_EVENTS_QUERY_RE.test(t) && !EXPLICIT_CREATE_RE.test(t)) return true;
   if (CANCEL_EVENT_CMD_RE.test(t) || CANCELEVT_BTN_RE.test(t)) return true;
@@ -1501,6 +1506,40 @@ async function buildMyRsvpsReply(
   );
 }
 
+// "my connections / my contacts / who have I connected with" (FR: mes connexions/
+// contacts). Franek (Jun 9): "a list of people with contacts that I'll be looking
+// for." Lists the people the caller has actually connected with — both sides of an
+// accepted intro — with each one's shareable contact (messaging handle + LinkedIn).
+const MY_CONNECTIONS_RE =
+  /\b(?:my\s+(?:connections?|contacts)|who\s+(?:have|did)\s+i\s+connect(?:ed)?\s+with|people\s+i(?:'?ve)?\s+connect(?:ed)?\s+with|mes\s+(?:connexions?|contacts))\b/i;
+
+async function buildMyConnectionsReply(
+  db: Firestore,
+  uid: string,
+  lang: Lang
+): Promise<string> {
+  // Accepted intros where the caller is either side. Two equality-only queries
+  // (no composite index needed); merge into the set of "other" people.
+  const [outgoing, incoming] = await Promise.all([
+    db.collection("introRequests").where("fromUid", "==", uid).where("status", "==", "accepted").get(),
+    db.collection("introRequests").where("toUid", "==", uid).where("status", "==", "accepted").get(),
+  ]);
+  const others = new Map<string, string>(); // otherUid -> name fallback
+  for (const d of outgoing.docs) others.set(String(d.data().toUid), String(d.data().toName ?? ""));
+  for (const d of incoming.docs) others.set(String(d.data().fromUid), String(d.data().fromName ?? ""));
+  others.delete(uid);
+  if (others.size === 0) return msg(lang).connectionsNone;
+
+  const lines: string[] = [];
+  for (const [otherUid, fallbackName] of others) {
+    const snap = await db.doc(`users/${otherUid}`).get();
+    const od = (snap.data() ?? {}) as Record<string, unknown>;
+    const name = (od.displayName as string) || fallbackName || "A member";
+    lines.push(`• ${contactText(lang, name, contactHandle(od), linkedinUrlOf(od))}`);
+  }
+  return msg(lang).connectionsList(lines);
+}
+
 // ── Owner event management (my events / edit / cancel) ──────────────────────
 // These must be matched BEFORE the create-event wizard: CREATE_EVENT_CMD_RE
 // matches a bare "événement", so "annuler événement" would otherwise be eaten as
@@ -2181,6 +2220,18 @@ export async function processMessage(deps: ProcessMessageDeps): Promise<void> {
   // RSVP-status query — "have I signed in?", "am I in?", "which events am I
   // going to?". Answered from the caller's own RSVPs, before the what's-on /
   // my-events listings so it isn't swallowed by either.
+  // "my connections" — people you've connected with (accepted intros) + contacts.
+  if (MY_CONNECTIONS_RE.test(body)) {
+    const reply = await buildMyConnectionsReply(db, uid, lang);
+    await writeOutbox(db, { provider, uid, phone, chatId, body: reply, type: "my_connections" });
+    await appendTurns(db, uid, [
+      { role: "user", content: body, at: Timestamp.now() },
+      { role: "assistant", content: reply, at: Timestamp.now() },
+    ]);
+    await inboxDoc.ref.update({ intent: "my_connections" });
+    return;
+  }
+
   if (RSVP_STATUS_RE.test(body)) {
     const reply = await buildMyRsvpsReply(db, uid, lang, extractRsvpEventName(body));
     await writeOutbox(db, { provider, uid, phone, chatId, body: reply, type: "rsvp_status" });

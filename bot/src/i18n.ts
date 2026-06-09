@@ -274,6 +274,9 @@ export interface Bundle {
   buddyAskInterest: string;
   // Voice note we couldn't transcribe — ask them to type or resend.
   voiceUnclear: string;
+  // "my connections" — people you've connected with (accepted intros) + contacts.
+  connectionsNone: string;
+  connectionsList: (lines: string[]) => string;
 }
 
 const EN: Bundle = {
@@ -480,6 +483,9 @@ const EN: Bundle = {
     "What are you working on, or hoping to meet? Or set it with `add interest <topic>`.",
   voiceUnclear:
     "I couldn't quite make out that voice note 🎤 — mind typing it, or resending it a bit clearer?",
+  connectionsNone:
+    "You haven't connected with anyone yet. Reply `find me a buddy` and I'll line someone up.",
+  connectionsList: (lines) => `Here are your connections:\n${lines.join("\n")}`,
 };
 
 const FR: Bundle = {
@@ -687,6 +693,9 @@ const FR: Bundle = {
     "Sur quoi travailles-tu, qui veux-tu rencontrer ? Ou règle-le avec `ajouter intérêt <sujet>`.",
   voiceUnclear:
     "Je n'ai pas bien saisi ce message vocal 🎤 — tu peux l'écrire, ou le renvoyer un peu plus clairement ?",
+  connectionsNone:
+    "Tu n'es encore connecté avec personne. Réponds « trouve-moi un binôme » et je t'en présente un.",
+  connectionsList: (lines) => `Voici tes connexions :\n${lines.join("\n")}`,
 };
 
 export function msg(lang: Lang): Bundle {

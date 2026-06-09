@@ -706,7 +706,7 @@ function bioLine(userData: Record<string, unknown>): string {
 // The requester's public LinkedIn URL, so the buddy can vet them before
 // accepting. Sourced from the enrichment worker (which web-searches it) — only
 // present when enrichment confidently identified the person.
-function linkedinUrlOf(userData: Record<string, unknown>): string | undefined {
+export function linkedinUrlOf(userData: Record<string, unknown>): string | undefined {
   const enr = (userData.enrichment ?? {}) as Record<string, unknown>;
   const url = (enr.linkedinUrl as string) || (userData.linkedinUrl as string);
   return url && url.trim() ? url.trim() : undefined;
@@ -716,7 +716,7 @@ function linkedinUrlOf(userData: Record<string, unknown>): string | undefined {
 // be shared; WhatsApp uses wa.me/<digits>. Returns empty label if the user has
 // no shareable handle (e.g. Telegram without a username) — caller falls back to
 // just the name.
-function contactHandle(
+export function contactHandle(
   userData: Record<string, unknown>
 ): { label: string; link?: string } {
   const username = userData.telegramUsername;
@@ -732,7 +732,7 @@ function contactHandle(
   return { label: "" };
 }
 
-function contactText(
+export function contactText(
   lang: Lang,
   name: string,
   handle: { label: string; link?: string },
