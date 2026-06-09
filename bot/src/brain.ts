@@ -1615,7 +1615,7 @@ interface OwnedEvent {
 }
 type ResolveOwnedResult =
   | { ok: true; event: OwnedEvent }
-  | { ok: false; reason: "notfound" | "notyours" | "ambiguous" };
+  | { ok: false; reason: "notfound" | "notyours" | "ambiguous" | "cancelled"; title?: string };
 
 // Resolve the event a cancel/edit command refers to, scoped to events the caller
 // HOSTS (status=scheduled). By id (button) we still verify ownership; by title we
@@ -1628,10 +1628,12 @@ async function resolveOwnedEvent(
 ): Promise<ResolveOwnedResult> {
   if (byId) {
     const snap = await db.doc(`events/${arg}`).get();
-    if (!snap.exists || snap.data()?.status !== "scheduled") {
-      return { ok: false, reason: "notfound" };
-    }
+    if (!snap.exists) return { ok: false, reason: "notfound" };
     if (snap.data()?.hostUid !== uid) return { ok: false, reason: "notyours" };
+    if (snap.data()?.status === "cancelled") {
+      return { ok: false, reason: "cancelled", title: String(snap.data()?.title ?? "") };
+    }
+    if (snap.data()?.status !== "scheduled") return { ok: false, reason: "notfound" };
     return { ok: true, event: { id: snap.id, data: snap.data() ?? {} } };
   }
   // Title fragment — search only the caller's own scheduled events. Two equality
@@ -1642,26 +1644,46 @@ async function resolveOwnedEvent(
     .where("status", "==", "scheduled")
     .get();
   const mine: OwnedEvent[] = snap.docs.map((d) => ({ id: d.id, data: d.data() ?? {} }));
-  if (mine.length === 0) return { ok: false, reason: "notfound" };
   const q = arg.trim().toLowerCase();
+  const titleMatch = (e: OwnedEvent) => {
+    const t = String(e.data.title ?? "").toLowerCase();
+    return t.includes(q) || q.includes(t);
+  };
   if (!q) {
     // No title given (e.g. bare "edit event") — use the only one, else ask.
     if (mine.length === 1) return { ok: true, event: mine[0] };
-    return { ok: false, reason: "ambiguous" };
+    return { ok: false, reason: mine.length === 0 ? "notfound" : "ambiguous" };
   }
-  const matches = mine.filter((e) => {
-    const t = String(e.data.title ?? "").toLowerCase();
-    return t.includes(q) || q.includes(t);
-  });
+  const matches = mine.filter(titleMatch);
   if (matches.length === 1) return { ok: true, event: matches[0] };
-  if (matches.length === 0) return { ok: false, reason: "notfound" };
-  return { ok: false, reason: "ambiguous" };
+  if (matches.length > 1) return { ok: false, reason: "ambiguous" };
+  // No scheduled match — check the caller's cancelled events so we can say "that
+  // was cancelled" instead of a vague "couldn't find it" (Shah, Jun 9: "tried to
+  // edit a cancelled event, got a wrong response").
+  const cancelledSnap = await db
+    .collection("events")
+    .where("hostUid", "==", uid)
+    .where("status", "==", "cancelled")
+    .get();
+  const cancMatch = cancelledSnap.docs
+    .map((d) => ({ id: d.id, data: d.data() ?? {} }))
+    .find(titleMatch);
+  if (cancMatch) {
+    return { ok: false, reason: "cancelled", title: String(cancMatch.data.title ?? "") };
+  }
+  return { ok: false, reason: "notfound" };
 }
 
 // The reason→message mapping shared by cancel and edit when resolution fails.
-function ownedEventMissReply(reason: "notfound" | "notyours" | "ambiguous", lang: Lang): string {
-  if (reason === "notyours") return msg(lang).notYourEvent;
-  if (reason === "ambiguous") return msg(lang).ownedEventAmbiguous;
+function ownedEventMissReply(
+  res: { reason: "notfound" | "notyours" | "ambiguous" | "cancelled"; title?: string },
+  lang: Lang
+): string {
+  if (res.reason === "notyours") return msg(lang).notYourEvent;
+  if (res.reason === "ambiguous") return msg(lang).ownedEventAmbiguous;
+  if (res.reason === "cancelled") {
+    return msg(lang).eventAlreadyCancelled(res.title ?? "that event");
+  }
   return msg(lang).rsvpNotFound;
 }
 
@@ -2412,7 +2434,7 @@ export async function processMessage(deps: ProcessMessageDeps): Promise<void> {
     let reply: string;
     let buttons: OutboxButton[] | undefined;
     if (!res.ok) {
-      reply = ownedEventMissReply(res.reason, lang);
+      reply = ownedEventMissReply(res, lang);
     } else {
       const title = String(res.event.data.title ?? "");
       const startAt = res.event.data.startAt as Timestamp | undefined;
@@ -2490,7 +2512,7 @@ export async function processMessage(deps: ProcessMessageDeps): Promise<void> {
       }
     }
     if (!res.ok) {
-      const reply = ownedEventMissReply(res.reason, lang);
+      const reply = ownedEventMissReply(res, lang);
       await writeOutbox(db, { provider, uid, phone, chatId, body: reply, type: "edit_prompt" });
       await appendTurns(db, uid, [
         { role: "user", content: body, at: Timestamp.now() },
