@@ -1513,6 +1513,13 @@ async function buildMyRsvpsReply(
 const MY_CONNECTIONS_RE =
   /\b(?:my\s+(?:connections?|contacts)|who\s+(?:have|did)\s+i\s+connect(?:ed)?\s+with|people\s+i(?:'?ve)?\s+connect(?:ed)?\s+with|mes\s+(?:connexions?|contacts))\b/i;
 
+// A message that is ESSENTIALLY just a greeting ("hi", "hello there", "bonjour").
+// Anchored start-to-end so "hi, find me a buddy" still routes to the command — only
+// a bare hello gets the warm intro + menu (Shah, Jun 9: bot should greet + introduce
+// itself rather than coldly dumping the menu).
+const GREETING_RE =
+  /^\s*(?:hi+|hey+|hello+|hiya|howdy|yo|sup|hola|greetings|salut|bonjour|coucou|good\s+(?:morning|afternoon|evening|day))(?:\s+(?:there|tribu|bot|all|team|guys|everyone))?[\s!.,?]*$/i;
+
 async function buildMyConnectionsReply(
   db: Firestore,
   uid: string,
@@ -2220,6 +2227,32 @@ export async function processMessage(deps: ProcessMessageDeps): Promise<void> {
   // RSVP-status query — "have I signed in?", "am I in?", "which events am I
   // going to?". Answered from the caller's own RSVPs, before the what's-on /
   // my-events listings so it isn't swallowed by either.
+  // Bare greeting → warm hello + one-line intro + the menu (with quick-action
+  // buttons), instead of the cold menu-only fallback (Shah, Jun 9). Skipped while
+  // a wizard is mid-flow so a "hi" during event creation isn't hijacked.
+  if (
+    GREETING_RE.test(body) &&
+    !convoState.eventCreation?.step &&
+    !convoState.editEvent?.step
+  ) {
+    const reply = `${msg(lang).greetingIntro}\n\n${msg(lang).menu}`;
+    await writeOutbox(db, {
+      provider,
+      uid,
+      phone,
+      chatId,
+      body: reply,
+      buttons: menuButtons(lang),
+      type: "greeting",
+    });
+    await appendTurns(db, uid, [
+      { role: "user", content: body, at: Timestamp.now() },
+      { role: "assistant", content: reply, at: Timestamp.now() },
+    ]);
+    await inboxDoc.ref.update({ intent: "greeting" });
+    return;
+  }
+
   // "my connections" — people you've connected with (accepted intros) + contacts.
   if (MY_CONNECTIONS_RE.test(body)) {
     const reply = await buildMyConnectionsReply(db, uid, lang);

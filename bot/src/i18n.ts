@@ -277,6 +277,8 @@ export interface Bundle {
   // "my connections" — people you've connected with (accepted intros) + contacts.
   connectionsNone: string;
   connectionsList: (lines: string[]) => string;
+  // A bare greeting ("hi"/"hello") — warm hello + one-line intro, shown above the menu.
+  greetingIntro: string;
 }
 
 const EN: Bundle = {
@@ -486,6 +488,8 @@ const EN: Bundle = {
   connectionsNone:
     "You haven't connected with anyone yet. Reply `find me a buddy` and I'll line someone up.",
   connectionsList: (lines) => `Here are your connections:\n${lines.join("\n")}`,
+  greetingIntro:
+    "Hey! 👋 I'm Tribu — I help you meet the right humans at VivaTech: your first 5 real connections, not your first 500 followers.",
 };
 
 const FR: Bundle = {
@@ -696,6 +700,8 @@ const FR: Bundle = {
   connectionsNone:
     "Tu n'es encore connecté avec personne. Réponds « trouve-moi un binôme » et je t'en présente un.",
   connectionsList: (lines) => `Voici tes connexions :\n${lines.join("\n")}`,
+  greetingIntro:
+    "Salut ! 👋 Je suis Tribu — je t'aide à rencontrer les bonnes personnes à VivaTech : tes 5 vraies rencontres, pas tes 500 premiers abonnés.",
 };
 
 export function msg(lang: Lang): Bundle {
