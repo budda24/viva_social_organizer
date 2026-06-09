@@ -393,6 +393,14 @@ async function loadMemberDirectory(db: Firestore): Promise<DirectoryMember[]> {
     // throughput fixtures and must never surface as real match suggestions
     // (e.g. "LoadTest 10" being offered for "find me a climate VC").
     .filter((d) => d.data().isLoadTest !== true)
+    // Only members who've actually JOINED the bot (have a Telegram or WhatsApp
+    // binding) can be pinged/intro'd — recommending an un-reachable web-only
+    // signup is a dead end (Shah, Jun 9: "user hasn't joined the bot, how does it
+    // recommend as a buddy?"). Filter them out of every match + who-is-here.
+    .filter((d) => {
+      const u = d.data();
+      return u.telegramChatId != null || u.whatsappPhoneE164 != null;
+    })
     .map((d) => {
       const u = d.data();
       const enr = (u.enrichment ?? {}) as Record<string, unknown>;
