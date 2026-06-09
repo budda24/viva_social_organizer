@@ -1352,19 +1352,17 @@ export async function handleJoin(
     return { reply: msg(lang).rsvpOwnEvent(title || "the event"), joined: false };
   }
 
-  await db
-    .collection("events")
-    .doc(eventId)
-    .collection("rsvps")
-    .doc(uid)
-    .set(
-      { uid, status: "going", via: "bot_join", at: FieldValue.serverTimestamp() },
-      { merge: true }
-    );
+  const rsvpRef = db.collection("events").doc(eventId).collection("rsvps").doc(uid);
 
-  // Now that they're in, reveal the exact address (public listings only show the
-  // neighborhood), the start time, and — if the host set up an Online Tribes group
-  // — its invite link to coordinate with the other attendees (works on any channel).
+  // Already going? Don't silently re-RSVP — say they're already in (Shah, Jun 8:
+  // "should respond that you have already joined"). We still reveal the details so
+  // the reply is as useful as a fresh join.
+  const existingRsvp = await rsvpRef.get();
+  const alreadyGoing = existingRsvp.exists && existingRsvp.data()?.status === "going";
+
+  // Event details to reveal on (re)join: the exact address (public listings only
+  // show the neighborhood), the start time, and — if the host set up an Online
+  // Tribes group — its invite link to coordinate with the other attendees.
   const evSnap =
     byId.exists && byId.id === eventId ? byId : await db.doc(`events/${eventId}`).get();
   const ev = (evSnap.data() ?? {}) as Record<string, unknown>;
@@ -1375,6 +1373,19 @@ export async function handleJoin(
       ? formatParisDateTime(startAt.toMillis(), lang)
       : "";
   const groupLink = typeof ev.tribeLink === "string" ? ev.tribeLink : "";
+
+  if (alreadyGoing) {
+    return {
+      reply: msg(lang).rsvpAlreadyJoined(title || "the event", place, when, groupLink || undefined),
+      joined: false,
+    };
+  }
+
+  await rsvpRef.set(
+    { uid, status: "going", via: "bot_join", at: FieldValue.serverTimestamp() },
+    { merge: true }
+  );
+
   return {
     reply: msg(lang).rsvpJoined(title || "the event", place, when, groupLink || undefined),
     joined: true,

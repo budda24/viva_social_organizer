@@ -202,6 +202,13 @@ export interface Bundle {
     when: string,
     groupLink?: string
   ) => string;
+  // Tried to join an event they're already going to — confirm, don't re-RSVP.
+  rsvpAlreadyJoined: (
+    title: string,
+    place: string,
+    when: string,
+    groupLink?: string
+  ) => string;
   rsvpNotFound: string;
   rsvpAmbiguous: string;
   // Someone tried to RSVP to an event they host — they're already in as the host.
@@ -319,6 +326,14 @@ const EN: Bundle = {
   rsvpJoined: (title, place, when, groupLink) =>
     [
       `✅ You're signed in for "${title}"`,
+      place || when ? `📍 ${[place, when].filter(Boolean).join(" · ")}` : null,
+      groupLink ? `Coordinate with the group: ${groupLink}` : null,
+    ]
+      .filter(Boolean)
+      .join("\n"),
+  rsvpAlreadyJoined: (title, place, when, groupLink) =>
+    [
+      `👍 You're already in for "${title}" — no need to join again.`,
       place || when ? `📍 ${[place, when].filter(Boolean).join(" · ")}` : null,
       groupLink ? `Coordinate with the group: ${groupLink}` : null,
     ]
@@ -510,6 +525,14 @@ const FR: Bundle = {
   rsvpJoined: (title, place, when, groupLink) =>
     [
       `✅ C'est confirmé, tu participes à « ${title} »`,
+      place || when ? `📍 ${[place, when].filter(Boolean).join(" · ")}` : null,
+      groupLink ? `Rejoins le groupe pour t'organiser : ${groupLink}` : null,
+    ]
+      .filter(Boolean)
+      .join("\n"),
+  rsvpAlreadyJoined: (title, place, when, groupLink) =>
+    [
+      `👍 Tu es déjà inscrit à « ${title} » — pas besoin de t'inscrire à nouveau.`,
       place || when ? `📍 ${[place, when].filter(Boolean).join(" · ")}` : null,
       groupLink ? `Rejoins le groupe pour t'organiser : ${groupLink}` : null,
     ]
