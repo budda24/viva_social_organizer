@@ -1406,11 +1406,22 @@ const RSVP_STATUS_RE =
 const RSVP_STATUS_EVENT_RE =
   /\b(?:(?:have|did)\s+i\s+(?:sign(?:ed)?\s*in|join(?:ed)?|rsvp(?:'?d|ed)?)|am\s+i\s+(?:signed\s*in|in|going|attending|registered)|suis-je\s+inscrit|je\s+suis\s+inscrit)\b\s+(?:(?:in|for|to|at|on|the|le|la|les|au|aux|pour|[àa]|l['’])\s+)*(.+)$/i;
 
-// Pull the named-event fragment from an RSVP-status question, or "" if none.
+// A captured fragment that's really a generic placeholder — "other event(s)",
+// "any event", "another event", "anything else", "else" — NOT a specific event
+// name. These mean "any of my events", so we list them all rather than searching
+// for an event literally titled "other event" (Shah, Jun 8: asked "have I signed
+// in [to any] other event" and got "you're not signed in for 'other event'").
+const GENERIC_EVENT_FRAG =
+  /^(?:(?:any|some|an|another|other|more|the\s+other|any\s+other)\s+)?events?$|^(?:any|other|others|another|anything(?:\s+else)?|something(?:\s+else)?|else)$/i;
+
+// Pull the named-event fragment from an RSVP-status question, or "" if none (or
+// if it's a generic placeholder → list all).
 export function extractRsvpEventName(body: string): string {
   const m = body.match(RSVP_STATUS_EVENT_RE);
   if (!m) return "";
-  return m[1].replace(/[?!.\s]+$/g, "").trim();
+  const frag = m[1].replace(/[?!.\s]+$/g, "").trim();
+  if (!frag || GENERIC_EVENT_FRAG.test(frag)) return "";
+  return frag;
 }
 
 // List the events the caller has RSVP'd to (status "going"), soonest first.
