@@ -335,7 +335,7 @@ const EN: Bundle = {
   rsvpStatusNone:
     'Not yet — you haven\'t signed in for any event. Reply "what\'s on" to pick one.',
   rsvpStatusNotFor: (title) =>
-    `Not yet — you're not signed in for "${title}". Reply "what's on" to find it.`,
+    `Not yet — you're not signed in for "${title}". Reply "upcoming events" to find it.`,
   interestsAdded: (added, all) =>
     `Added ${added.join(", ")} ✅ Your interests: ${all.join(", ")}.`,
   interestsNothingToAdd:
@@ -432,7 +432,7 @@ const EN: Bundle = {
     cancelEvt: "🗑 Cancel",
     introTo: "🤝 Intro:",
     menuBuddy: "🤝 Find a buddy",
-    menuWhatsOn: "📅 What's on",
+    menuWhatsOn: "📅 Upcoming events",
     menuCreate: "➕ Create event",
     menuWhoHere: "👥 Who is here",
   },
@@ -443,7 +443,7 @@ const EN: Bundle = {
     "• create event — propose a meetup; I'll ping everyone who can come\n" +
     "• my events — edit or cancel an event you host\n" +
     "• who is here — quick look at who's in the circle\n" +
-    "• what's on — see the upcoming events\n" +
+    "• upcoming events — see what's coming up\n" +
     "• free for 30 — flag you're free now; I'll find someone free to meet\n" +
     "• add interest <x> — tune what I match you on (also `my interests`)\n" +
     "• language — switch English / Français\n" +

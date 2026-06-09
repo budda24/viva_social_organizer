@@ -2146,7 +2146,7 @@ export async function processMessage(deps: ProcessMessageDeps): Promise<void> {
           : `✅ Yes — "${hit.title}" is on the calendar.`)
       : (lang === "fr"
           ? `Non — aucun événement « ${query} » pour l'instant. Réponds « quoi de prévu » pour voir l'agenda.`
-          : `No — there's no event called "${query}" yet. Reply "what's on" to see what's scheduled.`);
+          : `No — there's no event called "${query}" yet. Reply "upcoming events" to see what's scheduled.`);
     await writeOutbox(db, { provider, uid, phone, chatId, body: reply, type: "event_exists" });
     await appendTurns(db, uid, [
       { role: "user", content: body, at: Timestamp.now() },
