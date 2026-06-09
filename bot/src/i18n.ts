@@ -268,6 +268,8 @@ export interface Bundle {
   btn: BtnLabels;
   menu: string;
   buddyAskInterest: string;
+  // Voice note we couldn't transcribe — ask them to type or resend.
+  voiceUnclear: string;
 }
 
 const EN: Bundle = {
@@ -467,6 +469,8 @@ const EN: Bundle = {
   buddyAskInterest:
     "Happy to find your person — but tell me what you're into first so it's a real match, not a random intro. " +
     "What are you working on, or hoping to meet? Or set it with `add interest <topic>`.",
+  voiceUnclear:
+    "I couldn't quite make out that voice note 🎤 — mind typing it, or resending it a bit clearer?",
 };
 
 const FR: Bundle = {
@@ -667,6 +671,8 @@ const FR: Bundle = {
   buddyAskInterest:
     "Avec plaisir — dis-moi d'abord ce qui t'intéresse pour que ce soit un vrai match, pas une intro au hasard. " +
     "Sur quoi travailles-tu, qui veux-tu rencontrer ? Ou règle-le avec `ajouter intérêt <sujet>`.",
+  voiceUnclear:
+    "Je n'ai pas bien saisi ce message vocal 🎤 — tu peux l'écrire, ou le renvoyer un peu plus clairement ?",
 };
 
 export function msg(lang: Lang): Bundle {

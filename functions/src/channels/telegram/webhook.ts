@@ -44,6 +44,7 @@ interface TgMessage {
   from?: TgUser;
   chat: TgChat;
   text?: string;
+  voice?: { file_id: string; duration?: number; mime_type?: string };
 }
 interface TgCallbackQuery {
   id: string;
@@ -106,13 +107,19 @@ export const telegramWebhook = onRequest(
     }
 
     const message = update?.message;
-    if (!message || !message.text || message.chat.type !== "private") {
+    // Accept text OR a voice note (the laptop brain transcribes voice locally).
+    if (
+      !message ||
+      message.chat.type !== "private" ||
+      (!message.text && !message.voice)
+    ) {
       res.status(200).send("ok");
       return;
     }
 
     const chatId = message.chat.id;
-    const text = message.text.trim();
+    const text = message.text ? message.text.trim() : "";
+    const voiceFileId: string | undefined = message.voice?.file_id;
     const username = message.from?.username;
     const displayName =
       [message.from?.first_name, message.from?.last_name].filter(Boolean).join(" ") ||
@@ -221,6 +228,7 @@ export const telegramWebhook = onRequest(
         tgUsername: username ?? null,
         uid: user.uid,
         body: text,
+        voiceFileId: voiceFileId ?? null,
         receivedAt: FieldValue.serverTimestamp(),
         status: "pending",
         attempts: 0,

@@ -20,6 +20,7 @@
 import type { Firestore, QueryDocumentSnapshot } from "firebase-admin/firestore";
 import { FieldValue, Timestamp } from "firebase-admin/firestore";
 import { runChat, embed } from "./llm.js";
+import { transcribeTelegramVoice } from "./voice.js";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -1721,16 +1722,12 @@ export async function buildWhatsOnReply(
 export async function processMessage(deps: ProcessMessageDeps): Promise<void> {
   const { db, inboxDoc } = deps;
   const inbox = inboxDoc.data();
-  const body = String(inbox.body ?? "").trim();
+  let body = String(inbox.body ?? "").trim();
   const uid = String(inbox.uid);
   const provider = (inbox.provider as Provider) ?? "twilio";
   const phone = inbox.phone ? String(inbox.phone) : undefined;
   const chatId = inbox.chatId as number | undefined;
-
-  if (!body) {
-    await inboxDoc.ref.update({ intent: "empty" });
-    return;
-  }
+  const voiceFileId = inbox.voiceFileId ? String(inbox.voiceFileId) : "";
 
   const userRef = db.doc(`users/${uid}`);
   const userSnap = await userRef.get();
@@ -1739,6 +1736,40 @@ export async function processMessage(deps: ProcessMessageDeps): Promise<void> {
   const lang = normalizeLang(
     (userData as Record<string, unknown>).preferredLanguage
   );
+
+  // Voice note (Telegram): no text body, but a voice file_id recorded by the
+  // webhook. Download + transcribe locally (faster-whisper) and run the transcript
+  // through the normal pipeline — so speaking a command works like typing it.
+  if (!body && voiceFileId) {
+    try {
+      body = (await transcribeTelegramVoice(voiceFileId)).trim();
+      console.log(
+        `[bot] voice ${voiceFileId.slice(0, 12)}… -> ${JSON.stringify(body.slice(0, 80))}`
+      );
+    } catch (e) {
+      console.warn(
+        `[bot] voice transcription failed:`,
+        e instanceof Error ? e.message : e
+      );
+    }
+    if (!body) {
+      await writeOutbox(db, {
+        provider,
+        uid,
+        phone,
+        chatId,
+        body: msg(lang).voiceUnclear,
+        type: "voice_unclear",
+      });
+      await inboxDoc.ref.update({ intent: "voice_unclear" });
+      return;
+    }
+  }
+
+  if (!body) {
+    await inboxDoc.ref.update({ intent: "empty" });
+    return;
+  }
 
   const convoState = await loadConvoState(db, uid);
 
