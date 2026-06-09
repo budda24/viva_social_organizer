@@ -532,6 +532,38 @@ export function isTopicBrowse(body: string): boolean {
   return true;
 }
 
+// `find me a buddy` (EN) + FR equivalents. The buddy flow is an interest-based
+// match; the local model will happily pick a random member when it has nothing
+// to match on, so when the requester has zero interests on file we intercept and
+// ask instead (Shah, Jun 9: "matching anyone").
+export function isBuddyIntent(body: string): boolean {
+  const t = body.trim();
+  if (/\bfind\s+(?:me\s+)?(?:a\s+)?buddy\b/i.test(t)) return true;
+  if (/\btrouve[- ]?moi\b\s+(?:un\s+)?(?:bin[oô]me|quelqu'?un)\b/i.test(t)) return true;
+  if (/\bqui\s+devrais[- ]?je\s+rencontrer\b/i.test(t)) return true;
+  return false;
+}
+
+// True when we know SOMETHING to match the user on — a stated goal, legacy
+// topics/lookingFor, or any enriched signal. When this is false the buddy match
+// has nothing to go on, so we ask for an interest rather than guess.
+export function hasAnyInterest(
+  userData: Record<string, unknown>,
+  enrichment: Record<string, unknown>
+): boolean {
+  const s = (v: unknown) => typeof v === "string" && v.trim().length > 0;
+  const arr = (v: unknown) => Array.isArray(v) && v.length > 0;
+  return (
+    s(userData.goal) ||
+    s(userData.lookingFor) ||
+    arr(userData.topics) ||
+    s(enrichment.bio) ||
+    arr(enrichment.topics) ||
+    s(enrichment.matchSignals) ||
+    s(enrichment.company)
+  );
+}
+
 // ── Layer-2 hallucination backstop ──────────────────────────────────────────
 // A claim that a side effect ALREADY happened. The Claude path only PROPOSES
 // actions (gated behind a Yes/No button) or informs — it never COMPLETES one.
@@ -2465,13 +2497,25 @@ export async function processMessage(deps: ProcessMessageDeps): Promise<void> {
     lang,
   });
 
-  const rawReply = await runClaude(
-    claudeBody,
-    directoryBlock,
-    eventsBlock,
-    volatileBlock,
-    eventMode || editMode
-  );
+  // Buddy match is interest-based. If the requester has no interests on file the
+  // model would otherwise return a random member; intercept deterministically and
+  // ask what they're into instead (Shah, Jun 9). Skipped inside the guided modes.
+  const noInterestBuddy =
+    isBuddyIntent(body) &&
+    !eventMode &&
+    !editMode &&
+    !freeNowMode &&
+    !hasAnyInterest(userData as Record<string, unknown>, enrichment);
+
+  const rawReply = noInterestBuddy
+    ? msg(lang).buddyAskInterest
+    : await runClaude(
+        claudeBody,
+        directoryBlock,
+        eventsBlock,
+        volatileBlock,
+        eventMode || editMode
+      );
   let { reply, action } = parseActionMarker(rawReply);
 
   // The eventId for an edit is authoritative from conversation state, not the

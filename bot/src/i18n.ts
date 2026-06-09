@@ -256,6 +256,7 @@ export interface Bundle {
   otUsernameError: string;
   btn: BtnLabels;
   menu: string;
+  buddyAskInterest: string;
 }
 
 const EN: Bundle = {
@@ -440,6 +441,9 @@ const EN: Bundle = {
     "• language — switch English / Français\n" +
     "• help — see this menu again\n" +
     "• stop — opt out of messages",
+  buddyAskInterest:
+    "Happy to find your person — but tell me what you're into first so it's a real match, not a random intro. " +
+    "What are you working on, or hoping to meet? Or set it with `add interest <topic>`.",
 };
 
 const FR: Bundle = {
@@ -625,6 +629,9 @@ const FR: Bundle = {
     "• langue — passer English / Français\n" +
     "• help — revoir ce menu\n" +
     "• stop — ne plus recevoir de messages",
+  buddyAskInterest:
+    "Avec plaisir — dis-moi d'abord ce qui t'intéresse pour que ce soit un vrai match, pas une intro au hasard. " +
+    "Sur quoi travailles-tu, qui veux-tu rencontrer ? Ou règle-le avec `ajouter intérêt <sujet>`.",
 };
 
 export function msg(lang: Lang): Bundle {

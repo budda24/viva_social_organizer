@@ -56,13 +56,18 @@ const EVENTS_BLOCK = `## Upcoming events (scheduled, soonest first — Paris tim
 const EMPTY_EVENTS_BLOCK = `## Upcoming events
 (none scheduled yet — if the user asks what's on, reply in ONE warm line that nothing's on the calendar yet and invite them to be the first via "create event". Reply with only that line — do NOT show the menu.)`;
 
-function volatileBlock(extra = ""): string {
+function volatileBlock(extra = "", noInterests = false): string {
+  // Production omits the goal/topics lines entirely when the user has none on
+  // file (enrichment pending / empty profile) — mirror that for the buddy
+  // no-interest path so the model sees exactly what it would in prod.
+  const self = noInterests
+    ? ""
+    : `Your goal: find an AI infra co-founder. Energy: 1on1. Enriched topics: LLM serving, GPUs, agents.\n`;
   return `# Volatile context
 
 Current Paris time: 2026-06-09 18:30 (Tuesday), ISO 2026-06-09T18:30:00+02:00.
 Current user: uid u_self, channel telegram, displayName "You".
-Your goal: find an AI infra co-founder. Energy: 1on1. Enriched topics: LLM serving, GPUs, agents.
-${extra}
+${self}${extra}
 Recent turns: (none)`;
 }
 
@@ -76,6 +81,9 @@ interface Case {
     | "share_founder_contact"
     | null;
   volatileExtra?: string;
+  // Drop the user's goal/topics from the volatile block (simulates a profile
+  // with no interests on file — enrichment pending / empty).
+  noInterests?: boolean;
   // If set, the reply must match this (e.g. a venture pitch, not the menu).
   mustMatch?: RegExp;
   // If set, the reply must NOT match this (e.g. the menu bundled with an answer).
@@ -140,6 +148,16 @@ const CASES: Case[] = [
   },
   { name: "off-topic → menu, no marker", message: "what do you think about the weather?", expectMarker: null },
   { name: "find me a buddy → intro_buddy marker", message: "find me a buddy", expectMarker: "intro_buddy" },
+  {
+    // "Find buddy should be interest-based — currently matching anyone" (Shah, Jun 9).
+    // With NO interests on file the bot must ASK for an interest, not random-match a
+    // member (a real match would emit an intro_buddy marker, so expectMarker:null catches it).
+    name: "find me a buddy, no interests on file → ask, no marker",
+    message: "find me a buddy",
+    expectMarker: null,
+    noInterests: true,
+    mustMatch: /interest|into|add interest/i,
+  },
   { name: "intro me to Wei Chen → intro_buddy marker", message: "intro me to Wei Chen", expectMarker: "intro_buddy" },
   {
     name: "event proposal → create_event marker (EVENT_CREATION_MODE)",
@@ -212,7 +230,8 @@ async function main(): Promise<void> {
   const { parseActionMarker } = await import("./actions.js");
   // Import the REAL production guardrails so the eval validates the system
   // (model + harness), not just the raw model output.
-  const { isTopicBrowse, guardFabricatedSuccess, investorRoleDirective } = await import("./brain.js");
+  const { isTopicBrowse, guardFabricatedSuccess, investorRoleDirective, isBuddyIntent } = await import("./brain.js");
+  const { msg } = await import("./i18n.js");
 
   const backend = process.env.LLM_BACKEND ?? "local";
   const model =
@@ -227,23 +246,29 @@ async function main(): Promise<void> {
     let raw = "";
     let err: string | null = null;
     try {
-      const roleDirective = investorRoleDirective(c.message);
-      const { text } = await runChat({
-        system: [
-          BASE_SYSTEM_PROMPT,
-          DIRECTORY_BLOCK,
-          c.eventsBlock ?? EVENTS_BLOCK,
-          volatileBlock(c.volatileExtra ?? ""),
-          ...(roleDirective ? [roleDirective] : []),
-        ],
-        user: c.message,
-        maxTokens: 400,
-        expectAction:
-          c.expectMarker === "create_event" ||
-          c.expectMarker === "edit_event" ||
-          c.expectMarker === "share_founder_contact",
-      });
-      raw = text;
+      // Mirror the production harness short-circuit: a buddy request with no
+      // interests on file is answered deterministically (ask), never sent to the model.
+      if (isBuddyIntent(c.message) && (c.noInterests ?? false)) {
+        raw = msg("en").buddyAskInterest;
+      } else {
+        const roleDirective = investorRoleDirective(c.message);
+        const { text } = await runChat({
+          system: [
+            BASE_SYSTEM_PROMPT,
+            DIRECTORY_BLOCK,
+            c.eventsBlock ?? EVENTS_BLOCK,
+            volatileBlock(c.volatileExtra ?? "", c.noInterests ?? false),
+            ...(roleDirective ? [roleDirective] : []),
+          ],
+          user: c.message,
+          maxTokens: 400,
+          expectAction:
+            c.expectMarker === "create_event" ||
+            c.expectMarker === "edit_event" ||
+            c.expectMarker === "share_founder_contact",
+        });
+        raw = text;
+      }
     } catch (e) {
       err = e instanceof Error ? e.message : String(e);
     }
