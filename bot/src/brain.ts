@@ -87,6 +87,9 @@ interface Turn {
 interface EventCreationState {
   step: "awaiting_description";
   startedAt: Timestamp;
+  // How many times we've re-asked for a usable description. Caps the loop so a
+  // non-event reply can't keep the user stuck on "give me the details".
+  tries?: number;
 }
 
 // Owner has run `edit event <title>` and we're waiting for them to describe the
@@ -223,7 +226,8 @@ function matchCreateEventCommand(text: string): { matched: boolean; rest: string
 async function setEventCreation(
   db: Firestore,
   uid: string,
-  step: "awaiting_description" | null
+  step: "awaiting_description" | null,
+  tries = 0
 ): Promise<void> {
   const ref = db.doc(`conversationStates/${uid}`);
   if (step) {
@@ -233,6 +237,7 @@ async function setEventCreation(
         eventCreation: {
           step,
           startedAt: Timestamp.now(),
+          tries,
         },
         updatedAt: FieldValue.serverTimestamp(),
       },
@@ -1511,7 +1516,7 @@ async function buildMyRsvpsReply(
 // for." Lists the people the caller has actually connected with — both sides of an
 // accepted intro — with each one's shareable contact (messaging handle + LinkedIn).
 const MY_CONNECTIONS_RE =
-  /\b(?:my\s+(?:connections?|contacts)|who\s+(?:have|did)\s+i\s+connect(?:ed)?\s+with|people\s+i(?:'?ve)?\s+connect(?:ed)?\s+with|mes\s+(?:connexions?|contacts))\b/i;
+  /\b(?:my\s+(?:connections?|contacts)|how\s+many\s+(?:connections?|contacts)|(?:connections?|contacts)\s+(?:do\s+)?i\s+have|who\s+(?:have|did)\s+i\s+connect(?:ed)?\s+with|people\s+i(?:'?ve)?\s+connect(?:ed)?\s+with|mes\s+(?:connexions?|contacts)|combien\s+de\s+(?:connexions?|contacts))\b/i;
 
 // A message that is ESSENTIALLY just a greeting ("hi", "hello there", "bonjour").
 // Anchored start-to-end so "hi, find me a buddy" still routes to the command — only
@@ -2247,6 +2252,24 @@ export async function processMessage(deps: ProcessMessageDeps): Promise<void> {
   // RSVP-status query — "have I signed in?", "am I in?", "which events am I
   // going to?". Answered from the caller's own RSVPs, before the what's-on /
   // my-events listings so it isn't swallowed by either.
+  // Wizard escape hatch: if the user sends a recognized command while we're mid
+  // event-creation/edit, they've moved on — drop the wizard so the command routes
+  // normally instead of being eaten as the description we asked for (Shah, Jun 9:
+  // stuck looping on "give me title + when + where" after an incomplete create).
+  if (
+    isKnownIntent(body) &&
+    (convoState.eventCreation?.step || convoState.editEvent?.step)
+  ) {
+    if (convoState.eventCreation?.step) {
+      await setEventCreation(db, uid, null);
+      convoState.eventCreation = undefined;
+    }
+    if (convoState.editEvent?.step) {
+      await setEditEvent(db, uid, null);
+      convoState.editEvent = undefined;
+    }
+  }
+
   // Bare greeting → warm hello + one-line intro + the menu (with quick-action
   // buttons), instead of the cold menu-only fallback (Shah, Jun 9). Skipped while
   // a wizard is mid-flow so a "hi" during event creation isn't hijacked.
@@ -2442,6 +2465,9 @@ export async function processMessage(deps: ProcessMessageDeps): Promise<void> {
   // skipping the extra "what should change?" round-trip.
   let eventMode = false;
   let editMode = false;
+  // How many times we've already re-asked for a usable event description this
+  // wizard — carried into the runClaude catch to cap the "give me details" loop.
+  let eventTries = 0;
   let editEventId: string | undefined;
   let editEventData: Record<string, unknown> | undefined;
   let claudeBody = body;
@@ -2589,6 +2615,7 @@ export async function processMessage(deps: ProcessMessageDeps): Promise<void> {
       return;
     }
     eventMode = true;
+    eventTries = convoState.eventCreation.tries ?? 0;
     await setEventCreation(db, uid, null);
   } else if (convoState.editEvent?.step === "awaiting_changes") {
     // Continuation of `edit event` — this message describes the change(s).
@@ -2745,10 +2772,17 @@ export async function processMessage(deps: ProcessMessageDeps): Promise<void> {
         e instanceof Error ? e.message : e
       );
       if (eventMode) {
-        // Re-arm the wizard (the entry points cleared it just above) so the user's
-        // next, hopefully complete, message is still treated as the description.
-        await setEventCreation(db, uid, "awaiting_description");
-        rawReply = msg(lang).createEventNeedMore;
+        if (eventTries >= 1) {
+          // Already re-asked once and STILL no usable event — drop the wizard so a
+          // non-event reply can't keep the user stuck looping (Shah, Jun 9).
+          await setEventCreation(db, uid, null);
+          rawReply = msg(lang).createEventGaveUp;
+        } else {
+          // Re-arm (the entry points cleared it just above) so the user's next,
+          // hopefully complete, message is still treated as the description.
+          await setEventCreation(db, uid, "awaiting_description", eventTries + 1);
+          rawReply = msg(lang).createEventNeedMore;
+        }
       } else if (editMode) {
         if (editEventId) await setEditEvent(db, uid, editEventId);
         rawReply = msg(lang).editNeedMore;

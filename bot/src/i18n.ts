@@ -160,6 +160,8 @@ export interface Bundle {
   createEventPrompt: string;
   // Event description was incomplete (e.g. a title with no time) — ask for the rest.
   createEventNeedMore: string;
+  // Still no usable event after re-asking — drop the wizard so they aren't stuck.
+  createEventGaveUp: string;
   // Shown when a host tries to schedule an event for today (or earlier) — events
   // must be at least the next day so members have time to see it and RSVP.
   eventMustBeFuture: string;
@@ -292,6 +294,8 @@ const EN: Bundle = {
   createEventNeedMore:
     'Almost — I need it in one line: title, when, and where. ' +
     'e.g. "Cricket lovers, Sat 3pm, Parc des Princes". Or reply cancel.',
+  createEventGaveUp:
+    "No worries — I'll set the event aside for now. Reply `create event` to start again, or `help` to see what else I can do.",
   eventMustBeFuture:
     "Events need to be for tomorrow or later so people have time to see it and RSVP. " +
     "What day works?",
@@ -505,6 +509,8 @@ const FR: Bundle = {
   createEventNeedMore:
     "Presque — il me faut tout en une ligne : titre, quand et où. " +
     "Ex. « Amateurs de cricket, sam 15h, Parc des Princes ». Ou réponds annuler.",
+  createEventGaveUp:
+    "Pas de souci — je mets l'événement de côté pour l'instant. Réponds `create event` pour recommencer, ou `help` pour voir ce que je peux faire.",
   eventMustBeFuture:
     "Les événements doivent être pour demain ou plus tard, le temps que les membres " +
     "le voient et répondent. Quel jour te convient ?",
