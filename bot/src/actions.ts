@@ -42,6 +42,25 @@ export function isEventOngoing(startAtMs: number, nowMs: number): boolean {
   return startAtMs > 0 && startAtMs <= nowMs && nowMs < startAtMs + ONGOING_WINDOW_MS;
 }
 
+// Paris calendar-day key ("YYYY-MM-DD") for same-day comparisons.
+function parisDayKey(ms: number): string {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Europe/Paris",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date(ms));
+}
+
+// True once the event's Paris calendar day has arrived (or passed): it's "today
+// or earlier", so it's locked for cancel/edit — attendees have already planned
+// around it. Events are always created tomorrow-or-later, so this only trips on
+// (or after) the day of the event. (Strictly broader than isEventOngoing.)
+export function isLockedForChanges(startAtMs: number, nowMs: number): boolean {
+  if (!startAtMs) return false;
+  return parisDayKey(startAtMs) <= parisDayKey(nowMs);
+}
+
 const KIND_ENUM = [
   "breakfast",
   "coffee",
@@ -564,14 +583,14 @@ async function executeCancelEvent(
   if (ev.status === "cancelled") {
     return { reply: msg(lang).eventAlreadyCancelled(title) };
   }
-  // Re-check at execution time: the event may have started between the host
-  // requesting the cancel and confirming `yes`. An event that's underway can't
-  // be cancelled — attendees are already showing up.
+  // Re-check at execution time: the event may have crossed into its own day
+  // between the host requesting the cancel and confirming `yes`. An event that's
+  // today (or underway) is locked — attendees have planned around it.
   const startAt = ev.startAt;
   const startAtMs =
     startAt && typeof startAt.toMillis === "function" ? startAt.toMillis() : 0;
-  if (isEventOngoing(startAtMs, Date.now())) {
-    return { reply: msg(lang).cantCancelOngoing(title) };
+  if (isLockedForChanges(startAtMs, Date.now())) {
+    return { reply: msg(lang).cantCancelLocked(title) };
   }
 
   await ref.set(

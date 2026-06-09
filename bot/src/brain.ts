@@ -36,6 +36,7 @@ import {
   describePendingAction,
   executePendingAction,
   isEventOngoing,
+  isLockedForChanges,
   ONGOING_WINDOW_MS,
   parseActionMarker,
   type OutboxButton,
@@ -2196,9 +2197,9 @@ export async function processMessage(deps: ProcessMessageDeps): Promise<void> {
       const startAt = res.event.data.startAt as Timestamp | undefined;
       const startAtMs =
         startAt && typeof startAt.toMillis === "function" ? startAt.toMillis() : 0;
-      if (isEventOngoing(startAtMs, Date.now())) {
-        // Event is underway — refuse, and don't stage a cancel for confirmation.
-        reply = msg(lang).cantCancelOngoing(title);
+      if (isLockedForChanges(startAtMs, Date.now())) {
+        // Event is today or underway — locked. Refuse; don't stage a confirmation.
+        reply = msg(lang).cantCancelLocked(title);
       } else {
         const rsvps = await db
           .collection("events")
