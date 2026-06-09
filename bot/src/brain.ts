@@ -2640,11 +2640,17 @@ export async function processMessage(deps: ProcessMessageDeps): Promise<void> {
         `[bot] runClaude failed (eventMode=${eventMode} editMode=${editMode}):`,
         e instanceof Error ? e.message : e
       );
-      rawReply = eventMode
-        ? msg(lang).createEventNeedMore
-        : editMode
-          ? msg(lang).editNeedMore
-          : msg(lang).menu;
+      if (eventMode) {
+        // Re-arm the wizard (the entry points cleared it just above) so the user's
+        // next, hopefully complete, message is still treated as the description.
+        await setEventCreation(db, uid, "awaiting_description");
+        rawReply = msg(lang).createEventNeedMore;
+      } else if (editMode) {
+        if (editEventId) await setEditEvent(db, uid, editEventId);
+        rawReply = msg(lang).editNeedMore;
+      } else {
+        rawReply = msg(lang).menu;
+      }
     }
   }
   let { reply, action } = parseActionMarker(rawReply);
