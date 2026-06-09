@@ -158,9 +158,9 @@ export function parseActionMarker(
 ): { reply: string; action: PendingAction | null } {
   const re = /<<<ACTION\s*([\s\S]+?)\s*ACTION>>>/;
   const m = raw.match(re);
-  if (!m) return { reply: raw.trim(), action: null };
+  if (!m) return { reply: stripLeakedMarkers(raw), action: null };
 
-  const reply = raw.replace(re, "").trim();
+  const reply = stripLeakedMarkers(raw.replace(re, ""));
   let parsed: unknown;
   try {
     parsed = JSON.parse(m[1]);
@@ -170,6 +170,27 @@ export function parseActionMarker(
   }
   const action = validateAction(parsed);
   return { reply, action };
+}
+
+// Backstop for leaked action mechanics. The local model sometimes writes the
+// marker's NAME as prose instead of the hidden `<<<ACTION>>>` fence — observed
+// live: "Want to catch up with Franek? (share_founder_contact)" reaching the user
+// three times. Strip any leaked marker name (parenthesised or bare) and stray
+// fence fragments so internal plumbing never shows. The names are underscore
+// tokens, so this can never touch normal prose like "create event".
+const MARKER_NAMES =
+  "share_founder_contact|create_event|intro_buddy|edit_event|cancel_event";
+function stripLeakedMarkers(reply: string): string {
+  return reply
+    .replace(new RegExp(`\\(\\s*(?:${MARKER_NAMES})\\s*\\)`, "gi"), "")
+    .replace(new RegExp(`<<<\\s*ACTION[\\s\\S]*?ACTION\\s*>>>`, "gi"), "")
+    .replace(/<<<\s*ACTION\b/gi, "")
+    .replace(/\bACTION\s*>>>/gi, "")
+    .replace(new RegExp(`\\b(?:${MARKER_NAMES})\\b`, "gi"), "")
+    .replace(/[ \t]{2,}/g, " ")
+    .replace(/[ \t]+([.!?,])/g, "$1")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
 }
 
 function validateAction(raw: unknown): PendingAction | null {
