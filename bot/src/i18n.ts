@@ -243,6 +243,8 @@ export interface Bundle {
   cantCancelOngoing: (title: string) => string;
   // Host tried to cancel an event happening today (or earlier) — locked.
   cantCancelLocked: (title: string) => string;
+  // Host tried to edit an event happening today (or earlier) — locked.
+  cantEditLocked: (title: string) => string;
   eventCancelledNotice: (title: string, hostName: string) => string;
   eventUpdated: (title: string, notified: number) => string;
   eventUpdatedNotice: (a: EventUpdateArgs) => string;
@@ -379,6 +381,8 @@ const EN: Bundle = {
     `"${title}" is already underway, so I can't cancel it now. You can still edit the details if something changed.`,
   cantCancelLocked: (title) =>
     `Can't cancel "${title}" now — it's happening today (or already underway), so it's locked. People have planned around it; if things change, tell attendees in the group chat.`,
+  cantEditLocked: (title) =>
+    `Can't edit "${title}" now — it's happening today (or already underway), so it's locked. If something changed, let attendees know in the group chat.`,
   eventCancelledNotice: (title, hostName) =>
     `Heads up — "${title}"${hostName ? ` (hosted by ${hostName})` : ""} has been cancelled. ✕`,
   eventUpdated: (title, notified) =>
@@ -569,6 +573,8 @@ const FR: Bundle = {
     `« ${title} » est déjà en cours, je ne peux donc plus l'annuler. Tu peux encore en modifier les détails si besoin.`,
   cantCancelLocked: (title) =>
     `Impossible d'annuler « ${title} » — c'est aujourd'hui (ou déjà en cours), donc verrouillé. Les gens se sont organisés ; si ça change, préviens-les dans le chat du groupe.`,
+  cantEditLocked: (title) =>
+    `Impossible de modifier « ${title} » — c'est aujourd'hui (ou déjà en cours), donc verrouillé. Si quelque chose change, préviens les participants dans le chat du groupe.`,
   eventCancelledNotice: (title, hostName) =>
     `Info — « ${title} »${hostName ? ` (organisé par ${hostName})` : ""} a été annulé. ✕`,
   eventUpdated: (title, notified) =>

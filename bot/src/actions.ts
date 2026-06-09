@@ -634,7 +634,18 @@ async function executeEditEvent(
   if (!snap.exists) return { reply: msg(lang).eventGone };
   const ev = snap.data() ?? {};
   if (ev.hostUid !== uid) return { reply: msg(lang).notYourEvent };
+  const evTitle = String(ev.title ?? "");
+  // A cancelled event has nothing to edit; say so plainly rather than "gone".
+  if (ev.status === "cancelled") return { reply: msg(lang).eventAlreadyCancelled(evTitle) };
   if (ev.status !== "scheduled") return { reply: msg(lang).eventGone };
+  // Re-check at execution time: the event may have crossed into its own day
+  // between starting the edit and confirming. Locked once it's today/underway.
+  const lockStartAt = ev.startAt;
+  const lockStartMs =
+    lockStartAt && typeof lockStartAt.toMillis === "function" ? lockStartAt.toMillis() : 0;
+  if (isLockedForChanges(lockStartMs, Date.now())) {
+    return { reply: msg(lang).cantEditLocked(evTitle) };
+  }
 
   const c = action.changes;
   const patch: Record<string, unknown> = {};

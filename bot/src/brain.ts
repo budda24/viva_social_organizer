@@ -2275,6 +2275,21 @@ export async function processMessage(deps: ProcessMessageDeps): Promise<void> {
       await inboxDoc.ref.update({ intent: "edit_miss" });
       return;
     }
+    // Locked once it's the event's own day (or underway) — same rule as cancel.
+    // Refuse before entering EDIT_EVENT_MODE so the host can't tweak a live event.
+    const editStartAt = res.event.data.startAt as Timestamp | undefined;
+    const editStartMs =
+      editStartAt && typeof editStartAt.toMillis === "function" ? editStartAt.toMillis() : 0;
+    if (isLockedForChanges(editStartMs, Date.now())) {
+      const reply = msg(lang).cantEditLocked(String(res.event.data.title ?? "the event"));
+      await writeOutbox(db, { provider, uid, phone, chatId, body: reply, type: "edit_locked" });
+      await appendTurns(db, uid, [
+        { role: "user", content: body, at: Timestamp.now() },
+        { role: "assistant", content: reply, at: Timestamp.now() },
+      ]);
+      await inboxDoc.ref.update({ intent: "edit_locked" });
+      return;
+    }
     if (inlineChange) {
       // Route straight into EDIT_EVENT_MODE with the change as the message.
       editMode = true;
