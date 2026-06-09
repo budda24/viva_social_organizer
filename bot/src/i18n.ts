@@ -158,6 +158,8 @@ export interface BtnLabels {
 export interface Bundle {
   cancelled: string;
   createEventPrompt: string;
+  // Event description was incomplete (e.g. a title with no time) — ask for the rest.
+  createEventNeedMore: string;
   // Shown when a host tries to schedule an event for today (or earlier) — events
   // must be at least the next day so members have time to see it and RSVP.
   eventMustBeFuture: string;
@@ -240,6 +242,8 @@ export interface Bundle {
   whatsOnHint: string;
   editPrompt: (title: string) => string;
   editNoChanges: string;
+  // Edit turn produced no concrete change — ask what to change.
+  editNeedMore: string;
   notYourEvent: string;
   ownedEventAmbiguous: string;
   eventGone: string;
@@ -278,6 +282,9 @@ const EN: Bundle = {
     'What\'s the event? One message — title, when, where. ' +
     'Example: "Drinks tomorrow 8pm at Café Marly, max 12." ' +
     "Reply cancel to back out.",
+  createEventNeedMore:
+    'Almost — I need it in one line: title, when, and where. ' +
+    'e.g. "Cricket lovers, Sat 3pm, Parc des Princes". Or reply cancel.',
   eventMustBeFuture:
     "Events need to be for tomorrow or later so people have time to see it and RSVP. " +
     "What day works?",
@@ -379,6 +386,8 @@ const EN: Bundle = {
   editPrompt: (title) =>
     `Editing "${title}". What should change? (e.g. time to 9am, place to Café X, cap 15, or rename). Reply cancel to stop.`,
   editNoChanges: "Nothing changed — that's still how the event stands.",
+  editNeedMore:
+    'What should change? e.g. "move to 9pm" or "rename to Cricket lovers". Or reply cancel.',
   notYourEvent: "That's not an event you host, so I can't change it.",
   ownedEventAmbiguous:
     "You host more than one event — reply `my events` to pick the one you mean.",
@@ -479,6 +488,9 @@ const FR: Bundle = {
     "Quel événement ? En un message — titre, quand, où. " +
     "Exemple : « Verres demain 20h au Café Marly, max 12. » " +
     "Répondez annuler pour abandonner.",
+  createEventNeedMore:
+    "Presque — il me faut tout en une ligne : titre, quand et où. " +
+    "Ex. « Amateurs de cricket, sam 15h, Parc des Princes ». Ou réponds annuler.",
   eventMustBeFuture:
     "Les événements doivent être pour demain ou plus tard, le temps que les membres " +
     "le voient et répondent. Quel jour te convient ?",
@@ -581,6 +593,8 @@ const FR: Bundle = {
   editPrompt: (title) =>
     `Modification de « ${title} ». Que veux-tu changer ? (ex. heure à 9h, lieu à Café X, cap 15, ou renommer). Réponds annuler pour arrêter.`,
   editNoChanges: "Rien n'a changé — l'événement reste tel quel.",
+  editNeedMore:
+    "Que faut-il changer ? Ex. « décale à 21h » ou « renomme en Amateurs de cricket ». Ou réponds annuler.",
   notYourEvent: "Ce n'est pas un événement que tu organises, je ne peux pas le modifier.",
   ownedEventAmbiguous:
     "Tu organises plusieurs événements — réponds `mes événements` pour choisir lequel.",

@@ -2617,15 +2617,36 @@ export async function processMessage(deps: ProcessMessageDeps): Promise<void> {
     !freeNowMode &&
     !hasAnyInterest(userData as Record<string, unknown>, enrichment);
 
-  const rawReply = noInterestBuddy
-    ? msg(lang).buddyAskInterest
-    : await runClaude(
+  let rawReply: string;
+  if (noInterestBuddy) {
+    rawReply = msg(lang).buddyAskInterest;
+  } else {
+    try {
+      rawReply = await runClaude(
         claudeBody,
         directoryBlock,
         eventsBlock,
         volatileBlock,
         eventMode || editMode
       );
+    } catch (e) {
+      // In a guided mode an incomplete description (e.g. a title with no time/place)
+      // makes the model correctly ask a follow-up with NO action marker — but
+      // expectAction turns "no marker" into a thrown error, and local-only has no
+      // fallback, so the turn would otherwise produce no reply at all (Shah, Jun 8:
+      // "unable to create event" — "Create event" → "Cricket lovera" → silence).
+      // Never go silent: ask for the missing details (or fall back to the menu).
+      console.warn(
+        `[bot] runClaude failed (eventMode=${eventMode} editMode=${editMode}):`,
+        e instanceof Error ? e.message : e
+      );
+      rawReply = eventMode
+        ? msg(lang).createEventNeedMore
+        : editMode
+          ? msg(lang).editNeedMore
+          : msg(lang).menu;
+    }
+  }
   let { reply, action } = parseActionMarker(rawReply);
 
   // The eventId for an edit is authoritative from conversation state, not the
