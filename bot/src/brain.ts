@@ -1748,6 +1748,15 @@ const EDIT_EVENT_CMD_RE = new RegExp(
   `^\\s*/?(?:edit|update|change|move|reschedule|push|shift|rename|adjust|modifier?|changer?|d[ée]placer?|reporter?)[\\s_-]*${DETERMINER}(?:event|[ée]v[ée]nement)\\b[:\\s-]*(.*)$`,
   "i"
 );
+// Free-text edit phrasing that DOESN'T say "event" — "change the name to Loved
+// One", "reschedule the time", "change the place". EDIT_EVENT_CMD_RE misses these
+// (it requires the word "event"), so they used to fall through to the menu (Shah,
+// Jun 10: "it should ask which event"). Conservative on purpose: a `rename` verb,
+// or an edit verb paired with an event field-noun within a few words, so ordinary
+// chat doesn't trip it. A false positive is harmless — it just offers the event
+// picker. When this matches and the host has several events, we ask which one.
+const EDIT_FIELD_INTENT_RE =
+  /\b(?:rename|renomme[rz]?)\b|\b(?:change|set|update|move|reschedule|push|shift|adjust|edit|changer?|modifie[rz]?|d[ée]place[rz]?|d[ée]cale[rz]?|reporte[rz]?)\b[^\n]{0,40}\b(?:name|title|time|date|day|place|location|address|venue|capacity|spot|nom|titre|heure|horaire|jour|lieu|adresse|endroit|capacit[ée])\b/i;
 const CANCELEVT_BTN_RE = /^\s*cancelevt\s+(\S+)\s*$/i;
 const EDITEVT_BTN_RE = /^\s*editevt\s+(\S+)\s*$/i;
 // Tap-button on `find me <topic>` results: `introto <uid> <optional topic>`.
@@ -1853,7 +1862,7 @@ function ownedEventMissReply(
 // Build the `my events` reply: a list of the caller's scheduled events with
 // per-event Edit/Cancel tap-buttons on Telegram, and a typed-command hint in the
 // WhatsApp/fallback body.
-async function buildMyEventsReply(
+export async function buildMyEventsReply(
   db: Firestore,
   uid: string,
   lang: Lang
@@ -1886,14 +1895,22 @@ async function buildMyEventsReply(
     return { body: empty, telegramBody: empty };
   }
 
+  // Number multi-event lists so the buttons can stay short ("Edit 1" / "Cancel 1")
+  // and line up, instead of embedding long titles that Telegram truncates mid-word
+  // — "Edit Football Fans M", "Cancel Foitball Fans" (Shah, Jun 10: "it should be
+  // aligned"). With a single event there's nothing to disambiguate, so the buttons
+  // stay bare "Edit" / "Cancel".
+  const single = mine.length === 1;
   const lines = [msg(lang).myEventsHeader];
   const buttons: OutboxButton[] = [];
-  for (const e of mine) {
+  mine.forEach((e, i) => {
     const when = e.startAtMs ? formatParisDateTime(e.startAtMs, lang) : "";
-    lines.push(`- ${e.title}${[when, e.neighborhood].filter(Boolean).length ? ` · ${[when, e.neighborhood].filter(Boolean).join(" · ")}` : ""}`);
-    buttons.push({ text: `${msg(lang).btn.edit} ${e.title}`.slice(0, 60), data: `editevt ${e.id}` });
-    buttons.push({ text: `${msg(lang).btn.cancelEvt} ${e.title}`.slice(0, 60), data: `cancelevt ${e.id}` });
-  }
+    const meta = [when, e.neighborhood].filter(Boolean).join(" · ");
+    const n = single ? "" : ` ${i + 1}`;
+    lines.push(`${single ? "-" : `${i + 1}.`} ${e.title}${meta ? ` · ${meta}` : ""}`);
+    buttons.push({ text: `${msg(lang).btn.edit}${n}`, data: `editevt ${e.id}` });
+    buttons.push({ text: `${msg(lang).btn.cancelEvt}${n}`, data: `cancelevt ${e.id}` });
+  });
   const list = lines.join("\n");
   return {
     body: `${list}\n${msg(lang).myEventsHint}`,
@@ -2803,6 +2820,41 @@ export async function processMessage(deps: ProcessMessageDeps): Promise<void> {
     ]);
     await inboxDoc.ref.update({ intent: "introto" });
     return;
+  }
+
+  // Free-text edit with no event named ("change the name to X", "rename it",
+  // "reschedule the time") — the explicit `edit event …` handler above didn't
+  // catch it (no "event" keyword), so it used to fall through to the menu. If the
+  // host has SEVERAL events and isn't mid-wizard, show the picker and ask which
+  // one to change (Shah, Jun 10). Single-event / no-event cases fall through
+  // unchanged. A picker is the worst case, so a stray match is harmless.
+  if (
+    !eventMode &&
+    !editMode &&
+    !convoState.editEvent?.step &&
+    !convoState.eventCreation?.step &&
+    EDIT_FIELD_INTENT_RE.test(body)
+  ) {
+    const which = await resolveOwnedEvent(db, uid, "", false);
+    if (!which.ok && which.reason === "ambiguous") {
+      const picker = await buildWhichEventReply(db, uid, lang);
+      await writeOutbox(db, {
+        provider,
+        uid,
+        phone,
+        chatId,
+        body: picker.body,
+        telegramBody: picker.telegramBody,
+        buttons: picker.buttons,
+        type: "edit_which",
+      });
+      await appendTurns(db, uid, [
+        { role: "user", content: body, at: Timestamp.now() },
+        { role: "assistant", content: picker.body, at: Timestamp.now() },
+      ]);
+      await inboxDoc.ref.update({ intent: "edit_which" });
+      return;
+    }
   }
 
   // Event-creation wizard.
