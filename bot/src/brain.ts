@@ -644,6 +644,21 @@ export function stripIntroNudge(reply: string): string {
   return out || reply;
 }
 
+// Claude sometimes formats a URL as a Markdown link `[label](url)` despite the
+// plain-text rule. Both channels send with no parse_mode, so the literal
+// brackets/parens leak AND Telegram auto-links the bracketed *and* the
+// parenthesised URL — the link renders twice (Shah, Jun 10: "Have a Fun" group
+// link). Flatten any `[label](url)` to plain text: just the URL when the label
+// is itself a URL (the doubling case), else "label: url". The href must be
+// http(s) so ordinary prose like "see option (a)" is never touched.
+const MD_LINK_RE = /\[([^\]\n]+)\]\((https?:\/\/[^)\s]+)\)/g;
+export function stripMarkdownLinks(text: string): string {
+  return text.replace(MD_LINK_RE, (_m, label: string, url: string) => {
+    const l = label.trim();
+    return /^https?:\/\//i.test(l) ? url : `${l}: ${url}`;
+  });
+}
+
 // "find me a climate VC" → "climate VC" (strip the verb and a leading article)
 // for use in the intro opener / button callback_data.
 export function introTopicFrom(body: string): string {
@@ -1337,8 +1352,13 @@ async function writeOutbox(
   }
 ): Promise<void> {
   const isTelegram = args.provider === "telegram";
-  const body =
-    isTelegram && args.telegramBody !== undefined ? args.telegramBody : args.body;
+  // Single choke point for all outbound text — flatten any Markdown link the
+  // model emitted so a `[url](url)` can never reach any channel (see
+  // stripMarkdownLinks). Deterministic templates use bare URLs, so this is a
+  // no-op for them.
+  const body = stripMarkdownLinks(
+    isTelegram && args.telegramBody !== undefined ? args.telegramBody : args.body
+  );
   const row: Record<string, unknown> = {
     recipientType: "individual",
     recipientUid: args.uid,
