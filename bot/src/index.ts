@@ -149,6 +149,11 @@ console.log(
     `maxEnrichConcurrent=${MAX_ENRICH_CONCURRENT}`
 );
 
+// Write one beat right away so a fresh restart is immediately visible as
+// "online" — otherwise the webhook would read the pre-restart (stale) timestamp
+// for the first 15s and wrongly tell users we're offline.
+heartbeat().catch((e) => console.error("[bot] initial heartbeat failed:", e));
+
 setInterval(() => {
   heartbeat().catch((e) => console.error("[bot] heartbeat failed:", e));
 }, 15_000);

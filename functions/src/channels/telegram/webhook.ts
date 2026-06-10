@@ -241,6 +241,13 @@ export const telegramWebhook = onRequest(
       return;
     }
 
+    // Brain on the laptop down? Tell the user instead of silently queueing a
+    // message that would only surface much later, when the machine wakes.
+    if (await handledByOfflineNotice(db, { chatId, uid: user.uid, lang })) {
+      res.status(200).send("ok");
+      return;
+    }
+
     const messageId = `tg-${update!.update_id}`;
     await db.doc(`botInbox/${messageId}`).set(
       {
@@ -454,6 +461,72 @@ async function queueReply(
   });
 }
 
+// --- Brain-offline fallback -------------------------------------------------
+// The brain (the LLM poller) runs on a laptop and goes dark whenever that
+// machine is off, asleep, or rebooting. The webhook and the outbox sender are
+// Cloud Functions, so they stay up — which lets us notice the brain is gone and
+// tell the user, instead of leaving every message and button-tap in silence
+// (which reads as "still broken"). The brain writes system/botHeartbeat every
+// 15s; if the last beat is older than this, treat it as offline.
+const BRAIN_OFFLINE_MS = 90_000;
+// One offline note per chat per window — a flurry of taps during an outage
+// should get a single heads-up, not a wall of identical notices.
+const OFFLINE_NOTICE_TTL_MS = 5 * 60_000;
+
+async function isBrainOffline(db: FirebaseFirestore.Firestore): Promise<boolean> {
+  try {
+    const snap = await db.doc("system/botHeartbeat").get();
+    const last = snap.data()?.lastSeenAt as Timestamp | undefined;
+    if (!last) return true;
+    return Date.now() - last.toMillis() > BRAIN_OFFLINE_MS;
+  } catch (e) {
+    // Never block a real message on a heartbeat read error — fail open.
+    console.warn(`[telegramWebhook] heartbeat read failed: ${e}`);
+    return false;
+  }
+}
+
+// Returns true at most once per OFFLINE_NOTICE_TTL_MS per chat, so rapid
+// messages during an outage trigger a single offline note rather than many.
+async function claimOfflineNotice(
+  db: FirebaseFirestore.Firestore,
+  chatId: number
+): Promise<boolean> {
+  const ref = db.doc(`offlineNotices/${chatId}`);
+  return db.runTransaction(async (tx) => {
+    const snap = await tx.get(ref);
+    const last = snap.data()?.notifiedAt as Timestamp | undefined;
+    if (last && Date.now() - last.toMillis() < OFFLINE_NOTICE_TTL_MS) return false;
+    tx.set(ref, { notifiedAt: FieldValue.serverTimestamp() }, { merge: true });
+    return true;
+  });
+}
+
+function brainOfflineNotice(lang: "en" | "fr"): string {
+  return lang === "fr"
+    ? "⏳ Je suis momentanément hors ligne — de retour très vite. Renvoie ton message dans quelques minutes et je m'en occupe tout de suite. Merci de ta patience !"
+    : "⏳ I'm briefly offline right now — back very soon. Please send that again in a few minutes and I'll jump right on it. Thanks for bearing with me!";
+}
+
+// If the brain is offline, fire a (throttled) heads-up and report it so the
+// caller can skip queueing — a queued message would only be answered much
+// later, as a confusing out-of-nowhere burst. Returns true when offline.
+async function handledByOfflineNotice(
+  db: FirebaseFirestore.Firestore,
+  args: { chatId: number; uid: string; lang: "en" | "fr" }
+): Promise<boolean> {
+  if (!(await isBrainOffline(db))) return false;
+  if (await claimOfflineNotice(db, args.chatId)) {
+    await queueReply(db, {
+      chatId: args.chatId,
+      uid: args.uid,
+      body: brainOfflineNotice(args.lang),
+    });
+  }
+  console.warn(`[telegramWebhook] brain offline — sent fallback to chatId=${args.chatId}`);
+  return true;
+}
+
 /**
  * Handle an inline-button tap. We acknowledge it (stops the client spinner),
  * clear the keyboard on the original message (so the same button can't fire
@@ -484,6 +557,18 @@ async function handleCallbackQuery(
   const rate = await checkAndIncrement("telegram", user.uid);
   if (!rate.allowed) {
     console.warn(`[telegramWebhook] callback rate-limited uid=${user.uid}`);
+    return;
+  }
+
+  // Brain offline? A tap that just vanishes is exactly the "nothing happened"
+  // QA kept hitting. Send the heads-up and don't queue the action.
+  if (
+    await handledByOfflineNotice(db, {
+      chatId,
+      uid: user.uid,
+      lang: langFromTelegram(cq.from?.language_code),
+    })
+  ) {
     return;
   }
 
