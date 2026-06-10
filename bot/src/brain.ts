@@ -2144,13 +2144,11 @@ export async function processMessage(deps: ProcessMessageDeps): Promise<void> {
         pending
       );
       await setPendingAction(db, uid, null);
-      // A freshly-created event needs the host's Online Tribes username to spin
-      // up its group tribe — park the state and append the prompt to the reply.
-      let reply = result.reply;
-      if (result.needsTribeUsername && result.createdEventId) {
-        await setAwaitingOtUsername(db, uid, result.createdEventId);
-        reply = `${reply}\n\n${msg(lang).otUsernamePrompt}`;
-      }
+      // The event's group chat (Online Tribes tribe) is created automatically
+      // under the Viva Tribe service account inside executeCreateEvent — its
+      // invite link is already in result.reply. We never ask the host for an OT
+      // username (zero-friction; everyone joins via the link).
+      const reply = result.reply;
       await writeOutbox(db, {
         provider,
         uid,
@@ -2188,9 +2186,10 @@ export async function processMessage(deps: ProcessMessageDeps): Promise<void> {
     await setPendingAction(db, uid, null);
   }
 
-  // Online Tribes username follow-up — the host just created an event and we
-  // asked for their OT username to spin up the group tribe (owned by them). The
-  // next message is the username; `skip`/`cancel` bails (event stays, no group).
+  // DORMANT (kept for a possible future host-owned-tribe option): the OT-username
+  // follow-up that used to run after event creation. Event tribes are now created
+  // automatically under the Viva Tribe service account (no username ask), so
+  // nothing sets `awaitingOtUsername` and this branch is currently unreachable.
   if (convoState.awaitingOtUsername) {
     const st = convoState.awaitingOtUsername;
     const eventId = st.eventId;

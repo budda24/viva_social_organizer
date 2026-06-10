@@ -430,10 +430,9 @@ interface ExecuteDeps {
 
 interface ExecuteResult {
   reply: string;
-  // create_event only: the new event id, and whether we still need the host's
-  // Online Tribes username to spin up the group tribe (the brain then prompts).
+  // create_event only: the new event id. The group tribe is created
+  // automatically under the Viva Tribe service account (no host prompt).
   createdEventId?: string;
-  needsTribeUsername?: boolean;
 }
 
 async function executeCreateEvent(
@@ -514,36 +513,36 @@ async function executeCreateEvent(
     })
   );
 
-  // Group chat: create an Online Tribes "tribe" owned by the host. If we already
-  // have their OT username (from a prior event), do it now and attach the link;
-  // otherwise flag the brain to prompt for it. No-op if the integration is unset.
+  // Group chat: spin up the event's Online Tribes "tribe" under the Viva Tribe
+  // service account (OT_DEFAULT_OWNER_USERNAME). Everyone — the host included —
+  // joins via the invite link, which deep-links into the OT app (installing it if
+  // needed), so we never ask anyone for an OT username. No-op (no prompt) if the
+  // integration or the service owner isn't configured.
   let tribeLine = "";
-  let needsTribeUsername = false;
-  const otUsername =
-    typeof userData.onlineTribesUsername === "string"
-      ? userData.onlineTribesUsername.trim()
-      : "";
-  if (otUsername) {
+  const serviceOwner = process.env.OT_DEFAULT_OWNER_USERNAME?.trim();
+  if (isOnlineTribesConfigured() && serviceOwner) {
     const tribe = await createTribeForHost({
-      ownerUsername: otUsername,
+      ownerUsername: serviceOwner,
       name: action.title,
       bio: action.description || undefined,
     });
     if (tribe.ok) {
       await eventRef.set({ tribeLink: tribe.inviteLink }, { merge: true });
       tribeLine = "\n" + msg(deps.lang).tribeReady(tribe.inviteLink);
-    } else if (tribe.reason === "username_not_found") {
-      needsTribeUsername = true; // stored username no longer resolves — re-ask
+    } else {
+      // Transient error / unresolved service owner → event still lives, just no
+      // group this time. Never blocks event creation, never prompts the host.
+      console.warn(`[actions] event tribe not created (reason=${tribe.reason})`);
     }
-    // not_configured / transient error → skip the group this time, no prompt
   } else if (isOnlineTribesConfigured()) {
-    needsTribeUsername = true;
+    console.warn(
+      "[actions] OT_DEFAULT_OWNER_USERNAME unset — skipping event group chat (set it to the Viva Tribe OT account)"
+    );
   }
 
   return {
     reply: msg(deps.lang).eventCreated(action.title, pinged, skipped) + tribeLine,
     createdEventId: eventRef.id,
-    needsTribeUsername,
   };
 }
 

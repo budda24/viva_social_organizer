@@ -352,7 +352,7 @@ const EN: Bundle = {
     [
       `✅ You're signed in for "${title}"`,
       place || when ? `📍 ${[place, when].filter(Boolean).join(" · ")}` : null,
-      groupLink ? `Coordinate with the group: ${groupLink}` : null,
+      groupLink ? `Join the event's group chat on Online Tribes: ${groupLink}` : null,
     ]
       .filter(Boolean)
       .join("\n"),
@@ -360,7 +360,7 @@ const EN: Bundle = {
     [
       `👍 You're already in for "${title}" — no need to join again.`,
       place || when ? `📍 ${[place, when].filter(Boolean).join(" · ")}` : null,
-      groupLink ? `Coordinate with the group: ${groupLink}` : null,
+      groupLink ? `Join the event's group chat on Online Tribes: ${groupLink}` : null,
     ]
       .filter(Boolean)
       .join("\n"),
@@ -447,7 +447,8 @@ const EN: Bundle = {
     ]
       .filter(Boolean)
       .join("\n"),
-  tribeReady: (link) => `🎪 Group chat ready — share it with attendees: ${link}`,
+  tribeReady: (link) =>
+    `🎪 The event's group chat is live on Online Tribes — tap to join (it installs the app if needed): ${link}. Everyone who RSVPs gets the link too.`,
   otUsernamePrompt:
     "One more thing — what's your Online Tribes username? I'll spin up a group chat for this event that you'll own. " +
     "No account yet? Create one at https://online-tribes.com, then come back and reply your username. (Or reply skip.)",
@@ -573,7 +574,7 @@ const FR: Bundle = {
     [
       `✅ C'est confirmé, tu participes à « ${title} »`,
       place || when ? `📍 ${[place, when].filter(Boolean).join(" · ")}` : null,
-      groupLink ? `Rejoins le groupe pour t'organiser : ${groupLink}` : null,
+      groupLink ? `Rejoins le groupe de l'événement sur Online Tribes : ${groupLink}` : null,
     ]
       .filter(Boolean)
       .join("\n"),
@@ -581,7 +582,7 @@ const FR: Bundle = {
     [
       `👍 Tu es déjà inscrit à « ${title} » — pas besoin de t'inscrire à nouveau.`,
       place || when ? `📍 ${[place, when].filter(Boolean).join(" · ")}` : null,
-      groupLink ? `Rejoins le groupe pour t'organiser : ${groupLink}` : null,
+      groupLink ? `Rejoins le groupe de l'événement sur Online Tribes : ${groupLink}` : null,
     ]
       .filter(Boolean)
       .join("\n"),
@@ -669,7 +670,8 @@ const FR: Bundle = {
     ]
       .filter(Boolean)
       .join("\n"),
-  tribeReady: (link) => `🎪 Groupe de discussion prêt — partage-le aux participants : ${link}`,
+  tribeReady: (link) =>
+    `🎪 Le groupe de discussion de l'événement est en ligne sur Online Tribes — touche pour le rejoindre (l'app s'installe au besoin) : ${link}. Tous ceux qui s'inscrivent reçoivent le lien aussi.`,
   otUsernamePrompt:
     "Dernière chose — quel est ton nom d'utilisateur Online Tribes ? Je crée un groupe de discussion pour cet événement, dont tu seras propriétaire. " +
     "Pas encore de compte ? Crée-en un sur https://online-tribes.com, puis reviens répondre ton nom d'utilisateur. (Ou réponds skip.)",
