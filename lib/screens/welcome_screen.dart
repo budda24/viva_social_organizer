@@ -69,6 +69,12 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
   // account was deleted). The Telegram link can't be built, so we prompt a fresh
   // sign-in instead of handing out the broken placeholder code.
   bool _needsReauth = false;
+  // Set when this is an unauthenticated visit with no OAuth code to exchange
+  // (e.g. someone opened a shared /welcome link). We redirect to the sign-in
+  // screen; until that lands, build() must render nothing onboarding-shaped.
+  // This is what keeps the Telegram-binding screen from being reachable — and
+  // bindable — by a logged-out visitor.
+  bool _redirecting = false;
 
   @override
   void initState() {
@@ -107,7 +113,18 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
     if (code != null && code.isNotEmpty) {
       _exchanging = true;
       WidgetsBinding.instance.addPostFrameCallback((_) => _exchange(code));
+      return;
     }
+
+    // No live session and no OAuth code to exchange. Without this guard, build()
+    // would render the Telegram onboarding (deep link built from the default
+    // invite code) to an unauthenticated visitor — e.g. anyone sent the /welcome
+    // URL — letting them bind their Telegram without ever signing in. Bounce to
+    // the sign-in screen instead.
+    _redirecting = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) Navigator.of(context).pushReplacementNamed('/in');
+    });
   }
 
   Future<void> _loadTelegramCode(String uid) async {
@@ -269,6 +286,18 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
             ),
           ),
         ),
+      );
+    }
+
+    // Auth guard: this screen exposes Telegram onboarding, so it must never
+    // render for a logged-out visitor. initState already scheduled a redirect
+    // to /in; show a blank frame until it lands, and defend directly against any
+    // unauthenticated path that isn't mid-exchange or showing an auth error.
+    if (_redirecting ||
+        (!_exchanging && FirebaseAuth.instance.currentUser == null)) {
+      return const Scaffold(
+        backgroundColor: AppColors.background,
+        body: SizedBox.shrink(),
       );
     }
 

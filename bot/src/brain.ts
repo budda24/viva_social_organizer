@@ -1577,7 +1577,7 @@ export async function handleJoin(
 // "which events am I going to?". Answered concisely from the user's own RSVPs
 // instead of letting Claude dump the public what's-on list (tester #4).
 const RSVP_STATUS_RE =
-  /\b(?:have|did)\s+i\s+(?:sign(?:ed)?\s*in|join(?:ed)?|rsvp(?:'?d|ed)?)\b|\bam\s+i\s+(?:signed\s*in|in\b|going|attending|registered)|\bwhich\s+events?\s+am\s+i\b|\bmy\s+rsvps?\b|\bsuis-je\s+inscrit|\bje\s+suis\s+inscrit\b/i;
+  /\b(?:have|did)\s+i\s+(?:sign(?:ed)?\s*in|join(?:ed)?|rsvp(?:'?d|ed)?)\b|\bam\s+i\s+(?:signed\s*in|in\b|going|attending|registered)|\b(?:i|i'?ve)\s+(?:(?:have|had|already)\s+)*(?:signed\s*(?:in|up)|joined|rsvp(?:'?d|ed)?)\b|\bwhich\s+events?\s+am\s+i\b|\bmy\s+rsvps?\b|\bsuis-je\s+inscrit|\bje\s+suis\s+inscrit\b/i;
 
 // When the user names ONE specific event in their status question — "have I
 // signed in for Drink Night?", "am I going to the rooftop?" — capture that name

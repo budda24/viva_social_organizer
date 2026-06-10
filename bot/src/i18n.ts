@@ -394,7 +394,7 @@ const EN: Bundle = {
     "You have no interests listed yet. Add one with `add interest <name>`.",
   myEventsHeader: "Events you host:",
   myEventsEmpty:
-    "You're not hosting any events yet. Reply `create event` to start one.",
+    "You're not hosting any events yet. Reply `create event` to start one — or ask `which events am I in?` to see ones you've joined.",
   myEventsHint: "Reply `edit event <title>` or `cancel event <title>` to manage one.",
   whatsOnHeader: "Here's what's coming up:",
   whatsOnEmpty:
@@ -617,7 +617,7 @@ const FR: Bundle = {
     "Tu n'as encore aucun centre d'intérêt. Ajoutes-en un avec `ajouter intérêt <nom>`.",
   myEventsHeader: "Les événements que tu organises :",
   myEventsEmpty:
-    "Tu n'organises encore aucun événement. Réponds `créer événement` pour en lancer un.",
+    "Tu n'organises encore aucun événement. Réponds `créer événement` pour en lancer un — ou demande `à quels événements suis-je inscrit ?` pour voir ceux que tu as rejoints.",
   myEventsHint:
     "Réponds `modifier événement <titre>` ou `annuler événement <titre>` pour en gérer un.",
   whatsOnHeader: "Voici ce qui arrive :",
