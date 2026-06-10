@@ -274,6 +274,11 @@ export interface Bundle {
   btn: BtnLabels;
   menu: string;
   buddyAskInterest: string;
+  // `find me a buddy` results — a ranked, multi-person list with a Connect button each.
+  buddyIntro: string; // header above the list
+  buddyWhyShared: (topics: string[]) => string; // "You're both into X, Y."
+  buddyTapHint: string; // Telegram footer shown above the Connect buttons
+  buddyNobodyYet: string; // no other reachable members in the circle yet
   // Voice note we couldn't transcribe — ask them to type or resend.
   voiceUnclear: string;
   // "my connections" — people you've connected with (accepted intros) + contacts.
@@ -489,6 +494,12 @@ const EN: Bundle = {
   buddyAskInterest:
     "Happy to find your person — but tell me what you're into first so it's a real match, not a random intro. " +
     "What are you working on, or hoping to meet? Or set it with `add interest <topic>`.",
+  buddyIntro: "Here are a few people at VivaTech you'd click with 👇",
+  buddyWhyShared: (topics) => `You're both into ${topics.join(", ")}.`,
+  buddyTapHint:
+    "Tap a name to connect — it's double opt-in, so nothing's shared until they say yes.",
+  buddyNobodyYet:
+    "You're early — nobody else has joined the circle yet. I'll line up matches the moment they do. 🐣",
   voiceUnclear:
     "I couldn't quite make out that voice note 🎤 — mind typing it, or resending it a bit clearer?",
   connectionsNone:
@@ -705,6 +716,12 @@ const FR: Bundle = {
   buddyAskInterest:
     "Avec plaisir — dis-moi d'abord ce qui t'intéresse pour que ce soit un vrai match, pas une intro au hasard. " +
     "Sur quoi travailles-tu, qui veux-tu rencontrer ? Ou règle-le avec `ajouter intérêt <sujet>`.",
+  buddyIntro: "Voici quelques personnes à VivaTech avec qui tu accrocherais 👇",
+  buddyWhyShared: (topics) => `Vous partagez : ${topics.join(", ")}.`,
+  buddyTapHint:
+    "Touche un nom pour te connecter — c'est en double opt-in, rien n'est partagé tant que la personne n'a pas accepté.",
+  buddyNobodyYet:
+    "Tu es en avance — personne d'autre n'a encore rejoint le cercle. Je te proposerai des profils dès leur arrivée. 🐣",
   voiceUnclear:
     "Je n'ai pas bien saisi ce message vocal 🎤 — tu peux l'écrire, ou le renvoyer un peu plus clairement ?",
   connectionsNone:

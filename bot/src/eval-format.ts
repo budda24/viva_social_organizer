@@ -156,17 +156,12 @@ const CASES: Case[] = [
     mustNotMatch: /alice|sam rivera/i,
   },
   { name: "off-topic → menu, no marker", message: "what do you think about the weather?", expectMarker: null },
-  { name: "find me a buddy → intro_buddy marker", message: "find me a buddy", expectMarker: "intro_buddy" },
-  {
-    // "Find buddy should be interest-based — currently matching anyone" (Shah, Jun 9).
-    // With NO interests on file the bot must ASK for an interest, not random-match a
-    // member (a real match would emit an intro_buddy marker, so expectMarker:null catches it).
-    name: "find me a buddy, no interests on file → ask, no marker",
-    message: "find me a buddy",
-    expectMarker: null,
-    noInterests: true,
-    mustMatch: /interest|into|add interest/i,
-  },
+  // NOTE: `find me a buddy` is no longer an LLM case. It's handled by a
+  // deterministic ranker (rankBuddies) upstream of the model — it returns several
+  // interest-ranked matches, each with a Connect button, and never reaches the
+  // LLM (so no intro_buddy marker here). The ranker + formatting are validated
+  // live, against the real directory, by test-buddy-live.ts. The typed
+  // `intro me to <name>` verb below is still an LLM/marker path.
   { name: "intro me to Wei Chen → intro_buddy marker", message: "intro me to Wei Chen", expectMarker: "intro_buddy" },
   {
     name: "event proposal → create_event marker (EVENT_CREATION_MODE)",

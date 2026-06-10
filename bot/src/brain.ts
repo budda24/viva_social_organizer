@@ -395,7 +395,7 @@ export interface DirectoryMember {
   freeUntilMs?: number;
 }
 
-async function loadMemberDirectory(db: Firestore): Promise<DirectoryMember[]> {
+export async function loadMemberDirectory(db: Firestore): Promise<DirectoryMember[]> {
   const snap = await db.collection("users").where("status", "==", "approved").get();
   return snap.docs
     // Drop load-test artifacts (`lt-…` users tagged isLoadTest) — they're pure
@@ -685,6 +685,134 @@ export function buildIntroButtons(
   });
 }
 
+// ── Buddy matching (headline feature, deterministic) ─────────────────────────
+// `find me a buddy` does NOT go to the local model — it would pick one semi-
+// random person. Instead we rank the directory by embedding similarity to the
+// requester's OWN interests (nearest-by-interest, reusing the vectors the
+// directory pre-filter already builds), break ties by literal shared-topic
+// overlap, and surface the top few — each with a one-tap Connect button. The
+// user chooses; the bot doesn't guess a single answer.
+const BUDDY_RESULTS = Number(process.env.BUDDY_RESULTS ?? 3);
+
+// The requester's interests, for overlap scoring + the "you're both into …"
+// line. Enriched topics win over legacy seed topics.
+export function selfTopicList(
+  userData: Record<string, unknown>,
+  enrichment: Record<string, unknown>
+): string[] {
+  const enr = Array.isArray(enrichment.topics) ? (enrichment.topics as string[]) : [];
+  const legacy = Array.isArray(userData.topics) ? (userData.topics as string[]) : [];
+  return (enr.length ? enr : legacy).filter((t) => typeof t === "string" && t.trim());
+}
+
+// Topics shared between the requester and a candidate (case-insensitive), capped.
+function sharedTopics(selfTopics: string[], m: DirectoryMember): string[] {
+  const mine = new Set(selfTopics.map((t) => t.toLowerCase().trim()));
+  const theirs = m.enrichedTopics.length ? m.enrichedTopics : m.topics;
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const t of theirs) {
+    const k = t.toLowerCase().trim();
+    if (mine.has(k) && !seen.has(k)) {
+      seen.add(k);
+      out.push(t);
+    }
+  }
+  return out.slice(0, 3);
+}
+
+// A short, user-facing "what they do" line (no uid, unlike formatMemberLine).
+function buddyAbout(m: DirectoryMember): string {
+  const bio = (m.enrichedBio || m.bio || "").trim();
+  const company = (m.enrichedCompany || "").trim();
+  if (bio) {
+    const firstSentence = (bio.split(/(?<=[.!?])\s/)[0] ?? bio).slice(0, 100).trim();
+    return company && !firstSentence.toLowerCase().includes(company.toLowerCase())
+      ? `${firstSentence} (${company})`
+      : firstSentence;
+  }
+  if (company) return company;
+  if (m.goal) return m.goal.slice(0, 100).trim();
+  const topics = m.enrichedTopics.length ? m.enrichedTopics : m.topics;
+  if (topics.length) return `Into ${topics.slice(0, 3).join(", ")}`;
+  return "";
+}
+
+// Rank reachable members by interest similarity to the requester. Semantic
+// (cosine on cached embeddings) is primary; literal shared-topic count is a
+// tiebreak and a fallback if embeddings are unavailable. A tiny freeUntil boost
+// floats a reachable-right-now member up among near-equal matches.
+export async function rankBuddies(
+  members: DirectoryMember[],
+  selfUid: string,
+  selfQueryText: string,
+  selfTopics: string[],
+  limit: number
+): Promise<{ m: DirectoryMember; shared: string[] }[]> {
+  const others = members.filter((m) => m.uid !== selfUid);
+  if (others.length === 0) return [];
+
+  let qvec = memberEmbedCache.get(selfUid)?.vec;
+  if (!qvec?.length && selfQueryText.trim()) {
+    try {
+      [qvec] = await embed([selfQueryText]);
+    } catch (e) {
+      console.warn(
+        `[bot] buddy embed failed, ranking on topic overlap: ${e instanceof Error ? e.message : e}`
+      );
+      qvec = undefined;
+    }
+  }
+
+  return others
+    .map((m) => {
+      const v = memberEmbedCache.get(m.uid)?.vec ?? [];
+      const sem = qvec?.length && v.length ? cosine(qvec, v) : 0;
+      const shared = sharedTopics(selfTopics, m);
+      const score = sem + shared.length * 0.05 + (m.freeUntilMs ? 0.02 : 0);
+      return { m, shared, score };
+    })
+    .sort((a, b) => b.score - a.score)
+    .slice(0, limit)
+    .map(({ m, shared }) => ({ m, shared }));
+}
+
+// The user-facing buddy list (numbered cards). `footer` differs by channel:
+// Telegram gets a "tap below" hint (Connect buttons follow); WhatsApp gets the
+// typed `intro me to <name>` nudge since it has no buttons.
+export function buildBuddyReply(
+  buddies: { m: DirectoryMember; shared: string[] }[],
+  lang: Lang,
+  footer: string
+): string {
+  const lines = [msg(lang).buddyIntro, ""];
+  buddies.forEach(({ m, shared }, i) => {
+    const about = buddyAbout(m);
+    let card = `${i + 1}. ${m.name || "A member"}${about ? ` — ${about}` : ""}`;
+    if (shared.length) card += `\n   ${msg(lang).buddyWhyShared(shared)}`;
+    lines.push(card);
+  });
+  lines.push("", footer);
+  return lines.join("\n");
+}
+
+// One "🤝 Connect <Name>" button per buddy. Reuses the proven `introto <uid>
+// <reason>` callback the topic-browse buttons use, so a tap runs the same
+// double-opt-in intro path. A shared topic (if any) rides along as the opener
+// reason, trimmed to keep the callback within Telegram's 64-byte cap.
+export function buildBuddyButtons(
+  buddies: { m: DirectoryMember; shared: string[] }[],
+  lang: Lang
+): OutboxButton[] {
+  return buddies.map(({ m, shared }) => {
+    const reason = (shared[0] ?? "").trim();
+    const room = 64 - `introto ${m.uid} `.length;
+    const t = reason.slice(0, Math.max(0, room)).trim();
+    const data = t ? `introto ${m.uid} ${t}` : `introto ${m.uid}`;
+    return { text: `${msg(lang).btn.connect} ${m.name}`.slice(0, 60), data };
+  });
+}
+
 // True when the model emitted the fallback menu (it's told to send it verbatim).
 // Detected by the menu's distinctive first line so we can staple a few quick-
 // action tap-buttons under it on Telegram.
@@ -734,7 +862,7 @@ function hashText(s: string): string {
 
 // Embed any members whose profile text isn't already cached. Batched + awaited;
 // called inside the single-flight directory load so a burst embeds once, not N×.
-async function ensureMemberEmbeddings(members: DirectoryMember[]): Promise<void> {
+export async function ensureMemberEmbeddings(members: DirectoryMember[]): Promise<void> {
   const stale = members.filter((m) => memberEmbedCache.get(m.uid)?.hash !== hashText(memberEmbedText(m)));
   for (let i = 0; i < stale.length; i += EMBED_BATCH) {
     const chunk = stale.slice(i, i + EMBED_BATCH);
@@ -2700,6 +2828,64 @@ export async function processMessage(deps: ProcessMessageDeps): Promise<void> {
     getUpcomingEvents(db),
   ]);
   const enrichment = (userData.enrichment ?? {}) as Record<string, unknown>;
+
+  // ── Buddy match (deterministic, headline feature) ──────────────────────────
+  // `find me a buddy` short-circuits here — it never reaches the local model,
+  // which would pick one semi-random person. We rank the directory by interest
+  // similarity to the requester and surface the top few, each with a Connect
+  // button, so the user chooses. (Free-now keeps its time-sensitive
+  // FREE_NOW_MODE; topic browse + everything else still flow to the model.)
+  if (isBuddyIntent(body) && !eventMode && !editMode && !freeNowMode) {
+    let buddyReply: string;
+    let buddyTelegramBody: string | undefined;
+    let buddyButtons: OutboxButton[] | undefined;
+
+    const ud = userData as Record<string, unknown>;
+    if (!hasAnyInterest(ud, enrichment)) {
+      // Nothing to match on — ask what they're into (Shah, Jun 9: "matching anyone").
+      buddyReply = msg(lang).buddyAskInterest;
+    } else {
+      const selfTopics = selfTopicList(ud, enrichment);
+      const selfQueryText = [
+        ud.goal,
+        enrichment.bio || ud.bio,
+        selfTopics.join(", "),
+        enrichment.matchSignals,
+        enrichment.company,
+        ud.lookingFor,
+      ]
+        .filter((s): s is string => typeof s === "string" && s.trim().length > 0)
+        .join(" | ");
+      const buddies = await rankBuddies(members, uid, selfQueryText, selfTopics, BUDDY_RESULTS);
+      if (buddies.length === 0) {
+        buddyReply = msg(lang).buddyNobodyYet;
+      } else {
+        // WhatsApp body keeps the typed nudge (no buttons); Telegram gets the
+        // tap hint + a Connect button per buddy.
+        buddyReply = buildBuddyReply(buddies, lang, msg(lang).introBrowseNudge);
+        buddyTelegramBody = buildBuddyReply(buddies, lang, msg(lang).buddyTapHint);
+        buddyButtons = buildBuddyButtons(buddies, lang);
+      }
+    }
+
+    await writeOutbox(db, {
+      provider,
+      uid,
+      phone,
+      chatId,
+      body: buddyReply,
+      telegramBody: buddyTelegramBody,
+      buttons: buddyButtons,
+      type: "buddy",
+    });
+    await appendTurns(db, uid, [
+      { role: "user", content: body, at: Timestamp.now() },
+      { role: "assistant", content: buddyReply, at: Timestamp.now() },
+    ]);
+    await inboxDoc.ref.update({ intent: "buddy" });
+    return;
+  }
+
   // Pre-filter to the top-K members relevant to this requester+message so only a
   // small slice rides in the prompt (keeps throughput in the fast regime at
   // hundreds-1000 members). Falls back to all members for small communities.
@@ -2760,57 +2946,46 @@ export async function processMessage(deps: ProcessMessageDeps): Promise<void> {
     lang,
   });
 
-  // Buddy match is interest-based. If the requester has no interests on file the
-  // model would otherwise return a random member; intercept deterministically and
-  // ask what they're into instead (Shah, Jun 9). Skipped inside the guided modes.
-  const noInterestBuddy =
-    isBuddyIntent(body) &&
-    !eventMode &&
-    !editMode &&
-    !freeNowMode &&
-    !hasAnyInterest(userData as Record<string, unknown>, enrichment);
-
+  // `find me a buddy` is handled by the deterministic short-circuit above, so it
+  // never reaches here. Everything that does (topic browse, free-now, events,
+  // edits, free text) goes to the local model.
   let rawReply: string;
-  if (noInterestBuddy) {
-    rawReply = msg(lang).buddyAskInterest;
-  } else {
-    try {
-      rawReply = await runClaude(
-        claudeBody,
-        directoryBlock,
-        eventsBlock,
-        volatileBlock,
-        eventMode || editMode
-      );
-    } catch (e) {
-      // In a guided mode an incomplete description (e.g. a title with no time/place)
-      // makes the model correctly ask a follow-up with NO action marker — but
-      // expectAction turns "no marker" into a thrown error, and local-only has no
-      // fallback, so the turn would otherwise produce no reply at all (Shah, Jun 8:
-      // "unable to create event" — "Create event" → "Cricket lovera" → silence).
-      // Never go silent: ask for the missing details (or fall back to the menu).
-      console.warn(
-        `[bot] runClaude failed (eventMode=${eventMode} editMode=${editMode}):`,
-        e instanceof Error ? e.message : e
-      );
-      if (eventMode) {
-        if (eventTries >= 1) {
-          // Already re-asked once and STILL no usable event — drop the wizard so a
-          // non-event reply can't keep the user stuck looping (Shah, Jun 9).
-          await setEventCreation(db, uid, null);
-          rawReply = msg(lang).createEventGaveUp;
-        } else {
-          // Re-arm (the entry points cleared it just above) so the user's next,
-          // hopefully complete, message is still treated as the description.
-          await setEventCreation(db, uid, "awaiting_description", eventTries + 1);
-          rawReply = msg(lang).createEventNeedMore;
-        }
-      } else if (editMode) {
-        if (editEventId) await setEditEvent(db, uid, editEventId);
-        rawReply = msg(lang).editNeedMore;
+  try {
+    rawReply = await runClaude(
+      claudeBody,
+      directoryBlock,
+      eventsBlock,
+      volatileBlock,
+      eventMode || editMode
+    );
+  } catch (e) {
+    // In a guided mode an incomplete description (e.g. a title with no time/place)
+    // makes the model correctly ask a follow-up with NO action marker — but
+    // expectAction turns "no marker" into a thrown error, and local-only has no
+    // fallback, so the turn would otherwise produce no reply at all (Shah, Jun 8:
+    // "unable to create event" — "Create event" → "Cricket lovera" → silence).
+    // Never go silent: ask for the missing details (or fall back to the menu).
+    console.warn(
+      `[bot] runClaude failed (eventMode=${eventMode} editMode=${editMode}):`,
+      e instanceof Error ? e.message : e
+    );
+    if (eventMode) {
+      if (eventTries >= 1) {
+        // Already re-asked once and STILL no usable event — drop the wizard so a
+        // non-event reply can't keep the user stuck looping (Shah, Jun 9).
+        await setEventCreation(db, uid, null);
+        rawReply = msg(lang).createEventGaveUp;
       } else {
-        rawReply = msg(lang).menu;
+        // Re-arm (the entry points cleared it just above) so the user's next,
+        // hopefully complete, message is still treated as the description.
+        await setEventCreation(db, uid, "awaiting_description", eventTries + 1);
+        rawReply = msg(lang).createEventNeedMore;
       }
+    } else if (editMode) {
+      if (editEventId) await setEditEvent(db, uid, editEventId);
+      rawReply = msg(lang).editNeedMore;
+    } else {
+      rawReply = msg(lang).menu;
     }
   }
   let { reply, action } = parseActionMarker(rawReply);
