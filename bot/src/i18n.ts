@@ -305,9 +305,10 @@ const EN: Bundle = {
     "Events need to be for tomorrow or later so people have time to see it and RSVP. " +
     "What day works?",
   eventCreated: (title, pinged, unreachable) =>
-    `✓ "${title}" created. Pinging ${pinged} members` +
-    (unreachable > 0 ? ` (${unreachable} unreachable)` : "") +
-    ".",
+    `✓ "${title}" created — invite sent to ${pinged} ${pinged === 1 ? "member" : "members"}.` +
+    (unreachable > 0
+      ? ` (${unreachable} ${unreachable === 1 ? "other isn't" : "others aren't"} on the bot yet, so I couldn't reach ${unreachable === 1 ? "them" : "them"}.)`
+      : ""),
   eventAnnounce: (a, withCta = true) =>
     [
       `${a.emoji} ${a.title}`,
@@ -406,7 +407,7 @@ const EN: Bundle = {
     'What should change? e.g. "move to 9pm" or "rename to Cricket lovers". Or reply cancel.',
   notYourEvent: "That's not an event you host, so I can't change it.",
   ownedEventAmbiguous:
-    "You host more than one event — reply `my events` to pick the one you mean.",
+    "Which event do you mean? Tap the one you want:",
   eventGone: "That event isn't available anymore.",
   cancelConfirm: (title, attendees) =>
     `Cancel "${title}"? ` +
@@ -527,9 +528,10 @@ const FR: Bundle = {
     "Les événements doivent être pour demain ou plus tard, le temps que les membres " +
     "le voient et répondent. Quel jour te convient ?",
   eventCreated: (title, pinged, unreachable) =>
-    `✓ « ${title} » créé. J'envoie l'info à ${pinged} membres` +
-    (unreachable > 0 ? ` (${unreachable} injoignables)` : "") +
-    ".",
+    `✓ « ${title} » créé — invitation envoyée à ${pinged} membre${pinged === 1 ? "" : "s"}.` +
+    (unreachable > 0
+      ? ` (${unreachable} membre${unreachable === 1 ? " n'est" : "s ne sont"} pas encore sur le bot, je n'ai pas pu ${unreachable === 1 ? "le prévenir" : "les prévenir"}.)`
+      : ""),
   eventAnnounce: (a, withCta = true) =>
     [
       `${a.emoji} ${a.title}`,
@@ -629,7 +631,7 @@ const FR: Bundle = {
     "Que faut-il changer ? Ex. « décale à 21h » ou « renomme en Amateurs de cricket ». Ou réponds annuler.",
   notYourEvent: "Ce n'est pas un événement que tu organises, je ne peux pas le modifier.",
   ownedEventAmbiguous:
-    "Tu organises plusieurs événements — réponds `mes événements` pour choisir lequel.",
+    "Quel événement veux-tu ? Touche celui que tu veux :",
   eventGone: "Cet événement n'est plus disponible.",
   cancelConfirm: (title, attendees) =>
     `Annuler « ${title} » ? ` +

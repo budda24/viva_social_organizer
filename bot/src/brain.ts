@@ -1882,6 +1882,27 @@ async function buildMyEventsReply(
   };
 }
 
+// When a cancel/edit can't tell WHICH event the host means (a bare command, or a
+// title fragment matching several), don't dead-end with "type `my events`" — show
+// their events inline with Edit/Cancel buttons and let them tap the one they mean
+// (Shah, Jun 10: "it should ask which event"). Falls back to the flat ask if there
+// are no live events to show.
+async function buildWhichEventReply(
+  db: Firestore,
+  uid: string,
+  lang: Lang
+): Promise<{ body: string; telegramBody?: string; buttons?: OutboxButton[] }> {
+  const picker = await buildMyEventsReply(db, uid, lang);
+  if (!picker.buttons || picker.buttons.length === 0) {
+    return { body: msg(lang).ownedEventAmbiguous };
+  }
+  return {
+    body: `${msg(lang).ownedEventAmbiguous}\n${picker.telegramBody}`,
+    telegramBody: `${msg(lang).ownedEventAmbiguous}\n${picker.telegramBody}`,
+    buttons: picker.buttons,
+  };
+}
+
 // Build the `what's on` reply: upcoming events with a per-event Join tap-button
 // on Telegram (callback `join <id>`, resolved by handleJoin), and a typed-command
 // hint in the WhatsApp/fallback body. Handled deterministically by the harness —
@@ -2573,6 +2594,27 @@ export async function processMessage(deps: ProcessMessageDeps): Promise<void> {
   const cancelCmd = matchCancelEvent(body);
   if (cancelCmd.matched) {
     const res = await resolveOwnedEvent(db, uid, cancelCmd.arg, cancelCmd.byId);
+    // Ambiguous (bare "cancel event" with several, or a fragment matching more
+    // than one) → show the picker and ask which, instead of a dead-end nudge.
+    if (!res.ok && res.reason === "ambiguous") {
+      const picker = await buildWhichEventReply(db, uid, lang);
+      await writeOutbox(db, {
+        provider,
+        uid,
+        phone,
+        chatId,
+        body: picker.body,
+        telegramBody: picker.telegramBody,
+        buttons: picker.buttons,
+        type: "cancel_which",
+      });
+      await appendTurns(db, uid, [
+        { role: "user", content: body, at: Timestamp.now() },
+        { role: "assistant", content: picker.body, at: Timestamp.now() },
+      ]);
+      await inboxDoc.ref.update({ intent: "cancel_which" });
+      return;
+    }
     let reply: string;
     let buttons: OutboxButton[] | undefined;
     if (!res.ok) {
@@ -2654,6 +2696,26 @@ export async function processMessage(deps: ProcessMessageDeps): Promise<void> {
       }
     }
     if (!res.ok) {
+      // Ambiguous → show the picker and ask which, rather than a dead-end nudge.
+      if (res.reason === "ambiguous") {
+        const picker = await buildWhichEventReply(db, uid, lang);
+        await writeOutbox(db, {
+          provider,
+          uid,
+          phone,
+          chatId,
+          body: picker.body,
+          telegramBody: picker.telegramBody,
+          buttons: picker.buttons,
+          type: "edit_which",
+        });
+        await appendTurns(db, uid, [
+          { role: "user", content: body, at: Timestamp.now() },
+          { role: "assistant", content: picker.body, at: Timestamp.now() },
+        ]);
+        await inboxDoc.ref.update({ intent: "edit_which" });
+        return;
+      }
       const reply = ownedEventMissReply(res, lang);
       await writeOutbox(db, { provider, uid, phone, chatId, body: reply, type: "edit_prompt" });
       await appendTurns(db, uid, [
