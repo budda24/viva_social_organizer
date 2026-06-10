@@ -813,6 +813,21 @@ export function buildBuddyButtons(
   });
 }
 
+// Fire Telegram's "typing…" indicator from the brain. The webhook already shows
+// it on receipt, but that ~5s window can lapse during LLM inference, so we
+// refresh it right before a slow model call so the loader stays up until the
+// reply lands. Best-effort, fire-and-forget; no-op without a Telegram chatId.
+function sendTypingAction(chatId: number | undefined): void {
+  if (chatId == null) return;
+  const token = process.env.TELEGRAM_BOT_TOKEN;
+  if (!token) return;
+  void fetch(`https://api.telegram.org/bot${token}/sendChatAction`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ chat_id: chatId, action: "typing" }),
+  }).catch((e) => console.warn(`[bot] sendChatAction failed: ${e}`));
+}
+
 // True when the model emitted the fallback menu (it's told to send it verbatim).
 // Detected by the menu's distinctive first line so we can staple a few quick-
 // action tap-buttons under it on Telegram.
@@ -2948,6 +2963,12 @@ export async function processMessage(deps: ProcessMessageDeps): Promise<void> {
   // `find me a buddy` is handled by the deterministic short-circuit above, so it
   // never reaches here. Everything that does (topic browse, free-now, events,
   // edits, free text) goes to the local model.
+  // Refresh the "typing…" loader right before the (potentially multi-second) LLM
+  // call so it doesn't lapse mid-inference. No-op off Telegram. Deterministic
+  // paths returned earlier and are fast enough that the webhook's initial typing
+  // already covers them.
+  sendTypingAction(chatId);
+
   let rawReply: string;
   try {
     rawReply = await runClaude(

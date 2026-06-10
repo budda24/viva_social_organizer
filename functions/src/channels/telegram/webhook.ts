@@ -248,6 +248,9 @@ export const telegramWebhook = onRequest(
       return;
     }
 
+    // Brain is up and we're queueing for it — show "typing…" right away.
+    sendTypingAction(chatId);
+
     const messageId = `tg-${update!.update_id}`;
     await db.doc(`botInbox/${messageId}`).set(
       {
@@ -572,6 +575,9 @@ async function handleCallbackQuery(
     return;
   }
 
+  // Brain is up and we're queueing this tap — show "typing…" while it works.
+  sendTypingAction(chatId);
+
   // Remove the keyboard from the tapped message so it reads as "chosen" and a
   // double-tap can't enqueue the action twice.
   if (cq.message?.message_id) {
@@ -596,6 +602,21 @@ async function handleCallbackQuery(
     },
     { merge: true }
   );
+}
+
+// Show Telegram's "typing…" indicator the moment a message/tap arrives, so the
+// user sees a loader instead of silence during the poll + LLM round-trip to the
+// laptop brain. Fire-and-forget (never blocks the webhook's 200). The action
+// auto-expires after ~5s; the brain re-fires it before a slow LLM call.
+function sendTypingAction(chatId: number): void {
+  void fetch(
+    `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN.value()}/sendChatAction`,
+    {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ chat_id: chatId, action: "typing" }),
+    }
+  ).catch((e) => console.warn(`[telegramWebhook] sendChatAction failed: ${e}`));
 }
 
 async function answerCallbackQuery(callbackQueryId: string): Promise<void> {
