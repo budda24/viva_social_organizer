@@ -279,6 +279,9 @@ export interface Bundle {
   buddyWhyShared: (topics: string[]) => string; // "You're both into X, Y."
   buddyTapHint: string; // Telegram footer shown above the Connect buttons
   buddyNobodyYet: string; // no other reachable members in the circle yet
+  // `find me <topic>` deterministic browse results.
+  topicIntro: (topic: string) => string; // header above the topic match list
+  topicNobody: (topic: string) => string; // no clear match for the topic yet
   // Voice note we couldn't transcribe — ask them to type or resend.
   voiceUnclear: string;
   // "my connections" — people you've connected with (accepted intros) + contacts.
@@ -502,6 +505,9 @@ const EN: Bundle = {
     "Tap a name to connect — it's double opt-in, so nothing's shared until they say yes.",
   buddyNobodyYet:
     "You're early — nobody else has joined the circle yet. I'll line up matches the moment they do. 🐣",
+  topicIntro: (topic) => `Here's who fits "${topic}" 👇`,
+  topicNobody: (topic) =>
+    `No clear match for "${topic}" in the circle yet — want me to find you a buddy? Reply \`find me a buddy\`.`,
   voiceUnclear:
     "I couldn't quite make out that voice note 🎤 — mind typing it, or resending it a bit clearer?",
   connectionsNone:
@@ -726,6 +732,9 @@ const FR: Bundle = {
     "Touche un nom pour te connecter — c'est en double opt-in, rien n'est partagé tant que la personne n'a pas accepté.",
   buddyNobodyYet:
     "Tu es en avance — personne d'autre n'a encore rejoint le cercle. Je te proposerai des profils dès leur arrivée. 🐣",
+  topicIntro: (topic) => `Voici qui correspond à « ${topic} » 👇`,
+  topicNobody: (topic) =>
+    `Aucun profil clair pour « ${topic} » pour l'instant — veux-tu que je te trouve un binôme ? Réponds \`find me a buddy\`.`,
   voiceUnclear:
     "Je n'ai pas bien saisi ce message vocal 🎤 — tu peux l'écrire, ou le renvoyer un peu plus clairement ?",
   connectionsNone:
@@ -739,6 +748,24 @@ const FR: Bundle = {
 
 export function msg(lang: Lang): Bundle {
   return lang === "fr" ? FR : EN;
+}
+
+// Claude sometimes formats a URL as a Markdown link `[label](url)` despite the
+// plain-text rule. Both channels send with no parse_mode, so the literal
+// brackets/parens leak AND Telegram auto-links the bracketed *and* the
+// parenthesised URL — the link renders twice (Shah, Jun 10: "Have a Fun" group
+// link). Flatten any `[label](url)` to plain text: just the URL when the label
+// is itself a URL (the doubling case), else "label: url". The href must be
+// http(s) so ordinary prose like "see option (a)" is never touched. Lives in
+// this dependency-free leaf so BOTH outbound writers — brain.ts (writeOutbox)
+// and actions.ts (the broadcast/intro writer) — apply it without a circular
+// import.
+const MD_LINK_RE = /\[([^\]\n]+)\]\((https?:\/\/[^)\s]+)\)/g;
+export function stripMarkdownLinks(text: string): string {
+  return text.replace(MD_LINK_RE, (_m, label: string, url: string) => {
+    const l = label.trim();
+    return /^https?:\/\//i.test(l) ? url : `${l}: ${url}`;
+  });
 }
 
 // The directive injected into Claude's context so its (non-deterministic)

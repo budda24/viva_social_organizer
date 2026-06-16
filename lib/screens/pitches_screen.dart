@@ -2,14 +2,12 @@
 // Editing the HTML files under web/decks/ is the whole update flow; no Dart
 // changes needed when the deck content shifts.
 //
-// Layout: title + pill tab bar + active panel. Omnia also gets a video player
-// (pitch_2.mp4) above its deck; Online Tribes' video lands later.
+// Layout: title + pill tab bar + active panel. Omnia also gets a YouTube embed
+// (the Omnia presentation) above its deck; Online Tribes' video lands later.
 
-import 'dart:developer' as developer;
 import 'dart:ui_web' as ui_web;
 
 import 'package:flutter/material.dart';
-import 'package:video_player/video_player.dart';
 import 'package:web/web.dart' as web;
 
 import '../theme/app_colors.dart';
@@ -22,10 +20,12 @@ const _onlineTribesDeckViewType = 'deck-online-tribes';
 const _omniaDeckUrl = 'decks/omnia.html';
 const _omniaDeckViewType = 'deck-omnia';
 
-// Served as a static file from web/videos/ via Firebase Hosting. Loaded with
-// an absolute path so the browser doesn't resolve it relative to the current
-// route (e.g. /pitches/videos/... → catch-all rewrite → broken video).
-const _omniaVideoUrl = '/videos/pitch_2.mp4';
+// Omnia presentation hosted on YouTube — embedded rather than served as a
+// local mp4 so Firebase Hosting doesn't ship a ~33 MB asset and the player
+// gets adaptive streaming + fullscreen for free. youtube-nocookie avoids
+// dropping tracking cookies until the visitor actually hits play.
+const _omniaYouTubeId = '0oGbF0Jldj8';
+const _omniaVideoViewType = 'omnia-youtube';
 
 class PitchesScreen extends StatefulWidget {
   const PitchesScreen({super.key});
@@ -37,7 +37,8 @@ class PitchesScreen extends StatefulWidget {
 class _PitchesScreenState extends State<PitchesScreen> {
   int _selected = 0;
 
-  static const _tabs = ['Online Tribes', 'Omnia'];
+  // Omnia first so it's the default tab — the demo video is what opens.
+  static const _tabs = ['Omnia', 'Online Tribes'];
 
   @override
   Widget build(BuildContext context) {
@@ -73,12 +74,12 @@ class _PitchesScreenState extends State<PitchesScreen> {
             ),
             const SizedBox(height: 24),
             if (_selected == 0)
+              _OmniaPanel(isCompact: isCompact)
+            else
               const _DeckIframePanel(
                 url: _onlineTribesDeckUrl,
                 viewType: _onlineTribesDeckViewType,
-              )
-            else
-              _OmniaPanel(isCompact: isCompact),
+              ),
           ],
         ),
       ),
@@ -252,7 +253,7 @@ class _OmniaPanel extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: const [
-        _NetworkVideoPlayer(url: _omniaVideoUrl),
+        _YouTubeEmbed(videoId: _omniaYouTubeId, viewType: _omniaVideoViewType),
         SizedBox(height: 24),
         _DeckIframePanel(url: _omniaDeckUrl, viewType: _omniaDeckViewType),
       ],
@@ -260,294 +261,57 @@ class _OmniaPanel extends StatelessWidget {
   }
 }
 
-// ----- Asset video player -----------------------------------------------
+// ----- YouTube embed ----------------------------------------------------
 
-// Network-backed video player. 16:9, tap-to-toggle, with a thin scrubber.
-// Loading from a static URL (vs Flutter asset) avoids the relative-path trap
-// on Firebase Hosting where `assets/...` resolves under the current route and
-// gets caught by the catch-all rewrite. Initialization is async; we render a
-// black frame + spinner until it's ready, so the layout never jumps.
-class _NetworkVideoPlayer extends StatefulWidget {
-  const _NetworkVideoPlayer({required this.url});
+// Embeds a YouTube video via an HTMLIFrameElement bridged through
+// HtmlElementView (same pattern as the deck panels). 16:9, rounded corners.
+// registerViewFactory throws on a duplicate viewType, so dedupe across
+// instances (rebuilds, hot reload) with a static set.
+class _YouTubeEmbed extends StatefulWidget {
+  const _YouTubeEmbed({required this.videoId, required this.viewType});
 
-  final String url;
+  final String videoId;
+  final String viewType;
 
   @override
-  State<_NetworkVideoPlayer> createState() => _NetworkVideoPlayerState();
+  State<_YouTubeEmbed> createState() => _YouTubeEmbedState();
 }
 
-class _NetworkVideoPlayerState extends State<_NetworkVideoPlayer> {
-  late final VideoPlayerController _controller;
-  bool _ready = false;
-  bool _failed = false;
-  String? _error;
+class _YouTubeEmbedState extends State<_YouTubeEmbed> {
+  static final Set<String> _registered = {};
 
   @override
   void initState() {
     super.initState();
-    // Resolve relative to the document origin so the URL is always absolute,
-    // regardless of which route the user is on. Without this, a relative path
-    // (or a leading-slash path interpreted oddly by the platform) can fall
-    // through to Firebase Hosting's catch-all rewrite and 404 as index.html.
-    final resolved = Uri.base.resolve(widget.url);
-    _controller = VideoPlayerController.networkUrl(resolved)
-      ..setLooping(false)
-      ..addListener(_onTick);
-    _controller.initialize().then((_) {
-      if (mounted) setState(() => _ready = true);
-    }).catchError((Object err) {
-      developer.log(
-        'Video init failed for $resolved: $err',
-        name: 'pitches_screen',
-        error: err,
-      );
-      if (mounted) {
-        setState(() {
-          _failed = true;
-          _error = err.toString();
-        });
-      }
-    });
-  }
-
-  void _onTick() {
-    if (!mounted) return;
-    // Cheap rebuild — the player surface needs to reflect play/pause state and
-    // scrubber position. VideoPlayerController only emits a notify on actual
-    // changes, so this isn't burning frames at idle.
-    setState(() {});
-  }
-
-  @override
-  void dispose() {
-    _controller.removeListener(_onTick);
-    _controller.dispose();
-    super.dispose();
-  }
-
-  void _toggle() {
-    if (!_ready) return;
-    if (_controller.value.isPlaying) {
-      _controller.pause();
-    } else {
-      _controller.play();
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    if (_failed) {
-      return _VideoPlaceholder(
-        assetPath: widget.url,
-        lengthLabel: 'unavailable',
-        error: _error,
+    if (_registered.add(widget.viewType)) {
+      ui_web.platformViewRegistry.registerViewFactory(
+        widget.viewType,
+        (int viewId) {
+          return web.HTMLIFrameElement()
+            ..src =
+                'https://www.youtube-nocookie.com/embed/${widget.videoId}?rel=0'
+            ..title = 'Omnia presentation'
+            ..allow =
+                'accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share'
+            ..allowFullscreen = true
+            ..style.border = 'none'
+            ..style.width = '100%'
+            ..style.height = '100%'
+            ..style.borderRadius = '14px'
+            ..style.background = '#000000';
+        },
       );
     }
-    return AspectRatio(
-      aspectRatio: 16 / 9,
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(14),
-        child: GestureDetector(
-          onTap: _toggle,
-          child: Stack(
-            fit: StackFit.expand,
-            children: [
-              Container(color: Colors.black),
-              if (_ready)
-                FittedBox(
-                  fit: BoxFit.contain,
-                  child: SizedBox(
-                    width: _controller.value.size.width,
-                    height: _controller.value.size.height,
-                    child: VideoPlayer(_controller),
-                  ),
-                ),
-              if (!_ready)
-                const Center(
-                  child: SizedBox(
-                    width: 28,
-                    height: 28,
-                    child: CircularProgressIndicator(
-                      strokeWidth: 2,
-                      color: AppColors.accent,
-                    ),
-                  ),
-                ),
-              if (_ready && !_controller.value.isPlaying) _PlayOverlay(),
-              if (_ready)
-                Positioned(
-                  left: 0,
-                  right: 0,
-                  bottom: 0,
-                  child: VideoProgressIndicator(
-                    _controller,
-                    allowScrubbing: true,
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 8,
-                      vertical: 6,
-                    ),
-                    colors: const VideoProgressColors(
-                      playedColor: AppColors.accent,
-                      bufferedColor: Color(0x44A78BFA),
-                      backgroundColor: Color(0x22FFFFFF),
-                    ),
-                  ),
-                ),
-            ],
-          ),
-        ),
-      ),
-    );
   }
-}
-
-class _PlayOverlay extends StatelessWidget {
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      color: Colors.black.withValues(alpha: 0.25),
-      alignment: Alignment.center,
-      child: Container(
-        width: 64,
-        height: 64,
-        decoration: BoxDecoration(
-          color: AppColors.accentSoft,
-          shape: BoxShape.circle,
-          border: Border.all(color: AppColors.accent.withValues(alpha: 0.6)),
-        ),
-        alignment: Alignment.center,
-        child: const Padding(
-          padding: EdgeInsets.only(left: 4),
-          child: Icon(
-            Icons.play_arrow_rounded,
-            color: AppColors.ink,
-            size: 34,
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-// ----- Video placeholder (used when video fails to load) ----------------
-
-class _VideoPlaceholder extends StatelessWidget {
-  const _VideoPlaceholder({
-    required this.assetPath,
-    this.lengthLabel,
-    this.error,
-  });
-
-  final String assetPath;
-  final String? lengthLabel;
-  final String? error;
 
   @override
   Widget build(BuildContext context) {
     return AspectRatio(
       aspectRatio: 16 / 9,
-      child: Container(
-        decoration: BoxDecoration(
-          gradient: const LinearGradient(
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-            colors: [AppColors.backgroundGlow, AppColors.background],
-          ),
-          borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: AppColors.surfaceTintBorder),
-        ),
-        child: Stack(
-          children: [
-            Center(
-              child: Container(
-                width: 64,
-                height: 64,
-                decoration: BoxDecoration(
-                  color: AppColors.accentSoft,
-                  shape: BoxShape.circle,
-                  border: Border.all(
-                    color: AppColors.accent.withValues(alpha: 0.6),
-                  ),
-                ),
-                alignment: Alignment.center,
-                child: const Padding(
-                  padding: EdgeInsets.only(left: 4),
-                  child: Icon(
-                    Icons.play_arrow_rounded,
-                    color: AppColors.ink,
-                    size: 34,
-                  ),
-                ),
-              ),
-            ),
-            if (error != null)
-              Positioned(
-                left: 14,
-                right: 14,
-                bottom: 38,
-                child: Text(
-                  error!,
-                  maxLines: 3,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    color: Color(0xFFF87171),
-                    fontSize: 11,
-                    height: 1.4,
-                  ),
-                ),
-              ),
-            if (lengthLabel != null)
-              Positioned(
-                left: 14,
-                bottom: 12,
-                child: _Chip(
-                  child: Text(
-                    'Video · $lengthLabel',
-                    style: const TextStyle(
-                      color: AppColors.inkMuted,
-                      fontSize: 11,
-                      fontWeight: FontWeight.w500,
-                      letterSpacing: 0.4,
-                    ),
-                  ),
-                ),
-              ),
-            Positioned(
-              left: 14,
-              top: 12,
-              child: _Chip(
-                child: Text(
-                  assetPath,
-                  style: mono(
-                    fontSize: 9,
-                    color: AppColors.inkSubtle,
-                    weight: FontWeight.w500,
-                  ),
-                ),
-              ),
-            ),
-          ],
-        ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(14),
+        child: HtmlElementView(viewType: widget.viewType),
       ),
-    );
-  }
-}
-
-class _Chip extends StatelessWidget {
-  const _Chip({required this.child});
-
-  final Widget child;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-      decoration: BoxDecoration(
-        color: AppColors.background.withValues(alpha: 0.6),
-        borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: AppColors.cardBorder),
-      ),
-      child: child,
     );
   }
 }

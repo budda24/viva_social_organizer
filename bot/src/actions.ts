@@ -21,7 +21,7 @@
 
 import type { Firestore } from "firebase-admin/firestore";
 import { FieldValue, Timestamp } from "firebase-admin/firestore";
-import { msg, normalizeLang, type Lang } from "./i18n.js";
+import { msg, normalizeLang, stripMarkdownLinks, type Lang } from "./i18n.js";
 import {
   createTribeForHost,
   deleteTribeForEvent,
@@ -321,8 +321,12 @@ export async function enqueueOutbox(
   }
 ): Promise<void> {
   const isTelegram = args.route.provider === "telegram";
-  const body =
-    isTelegram && args.telegramBody !== undefined ? args.telegramBody : args.body;
+  // Flatten any `[url](url)` before it leaves — same guard as brain.ts's
+  // writeOutbox, so this second outbound writer can't reintroduce the
+  // double-link (a no-op for the bare-URL templates this path sends today).
+  const body = stripMarkdownLinks(
+    isTelegram && args.telegramBody !== undefined ? args.telegramBody : args.body
+  );
   const row: Record<string, unknown> = {
     recipientType: "individual",
     recipientUid: args.recipientUid,

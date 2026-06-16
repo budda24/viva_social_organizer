@@ -14,6 +14,14 @@ export { linkedinSignIn } from "./users/linkedin";
 // To re-enable the paid CF, uncomment and redeploy. also `firebase functions:delete enrichUser`d.
 // export { enrichUser } from "./users/enrich";
 export { reclaimStaleInbox } from "./bot/reclaimInbox";
+// Pages Franek (Telegram DM + Slack) when the laptop brain goes down — stale
+// heartbeat (laptop/bot offline) or a fresh beat reporting ollamaOk === false.
+export { brainWatchdog } from "./bot/watchdog";
+
+// === Public landing-page member count ===
+// Maintains public/stats.memberCount so the signed-out "/" landing can show a
+// live "N tribers" pill without exposing the sign-in-gated directory.
+export { onUserWrite } from "./stats/memberCount";
 
 // === Twilio WhatsApp (Sandbox) — fallback channel ===
 export { twilioWebhook } from "./channels/twilio/webhook";

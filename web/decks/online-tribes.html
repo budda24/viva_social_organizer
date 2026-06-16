@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Online Tribes — Pitch Deck v6 (Vision)</title>
+    <title>Online Tribes — Pitch Deck v8 ($500K Pre-Seed)</title>
     <style>
       @import url("https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap");
 
@@ -82,7 +82,7 @@
       .cover { text-align: center; padding-top: 80px; }
       .cover .logo { width: 80px; height: 80px; border-radius: var(--radius-md); object-fit: contain; margin-bottom: 20px; }
       .cover h1 { font-size: 44px; font-weight: 900; color: var(--text-dark); letter-spacing: -0.03em; margin-bottom: 8px; }
-      .cover .tagline { font-size: 20px; color: var(--primary); font-weight: 600; margin-bottom: 12px; }
+      .cover .tagline { font-size: 20px; color: var(--primary); font-weight: 600; margin-bottom: 12px; max-width: 640px; margin-left: auto; margin-right: auto; }
       .cover .sub { font-size: 15px; color: var(--text-muted); margin-bottom: 32px; }
       .cover .badge {
         display: inline-block;
@@ -93,6 +93,28 @@
         font-size: 15px;
         font-weight: 700;
         letter-spacing: 0.02em;
+      }
+
+      /* Big statement */
+      .big-statement {
+        font-size: 20px;
+        font-weight: 600;
+        color: var(--text-dark);
+        line-height: 1.5;
+        letter-spacing: -0.01em;
+        margin: 18px 0 22px;
+        text-align: left;
+      }
+      .big-statement .accent { color: var(--primary); font-weight: 700; }
+
+      .story-quote {
+        font-size: 20px;
+        font-weight: 600;
+        color: var(--text-dark);
+        line-height: 1.45;
+        border-left: 3px solid var(--primary);
+        padding: 4px 0 4px 22px;
+        margin: 20px 0;
       }
 
       /* Highlight */
@@ -138,6 +160,8 @@
       li { margin: 8px 0; font-size: 15px; line-height: 1.55; color: var(--text); }
       li::marker { color: var(--primary); font-weight: 700; }
       strong { color: var(--text-dark); font-weight: 700; }
+      a { color: #2563eb; text-decoration: underline; text-underline-offset: 2px; font-weight: 600; }
+      a:hover { color: #1d4ed8; }
 
       /* Table */
       table {
@@ -194,54 +218,67 @@
       .back-cover .subtitle { font-size: 18px; color: var(--text); margin-bottom: 32px; }
 
       .qr-container { display: flex; align-items: center; justify-content: center; gap: 40px; margin: 28px 0; flex-wrap: wrap; }
-      .qr-code { width: 120px; height: 120px; background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 8px; }
+      .qr-code { width: 150px; height: 174px; background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 8px; }
       .qr-code img { width: 100%; height: 100%; object-fit: contain; }
       .contact-info { text-align: left; }
       .contact-info p { margin: 10px 0; font-size: 16px; }
       .contact-email { font-size: 20px; font-weight: 700; color: var(--primary); margin: 16px 0; }
 
-      /* Chart images */
-      .chart-img {
-        width: 100%;
-        border: 1px solid var(--border-strong);
-        border-radius: var(--radius-md);
-        margin: 16px 0 8px;
-        page-break-inside: avoid;
-        display: block;
-      }
-      .chart-caption { font-size: 12px; color: var(--text-muted); text-align: center; margin-bottom: 8px; }
-
-      /* Pills */
-      .pill-row { display: flex; flex-wrap: wrap; gap: 8px; margin: 16px 0; }
-      .pill {
-        background: var(--primary-bg);
-        color: var(--primary-dark);
-        border: 1px solid var(--border-strong);
-        border-radius: 999px;
-        padding: 6px 14px;
-        font-size: 13px;
-        font-weight: 600;
-      }
-
       /* Use of funds bar */
       .funds-bar { display: flex; border-radius: var(--radius-md); overflow: hidden; margin: 20px 0 24px; height: 40px; font-size: 12px; font-weight: 700; color: white; }
       .funds-bar > div { display: flex; align-items: center; justify-content: center; padding: 0 8px; white-space: nowrap; }
 
+      /* Cover metric strip */
+      .metric-strip { display: flex; justify-content: center; flex-wrap: wrap; gap: 14px 30px; margin: 4px 0 26px; }
+      .metric-strip > div { display: flex; flex-direction: column; align-items: center; }
+      .metric-strip .m-num { font-size: 26px; font-weight: 900; color: var(--primary); line-height: 1; letter-spacing: -0.02em; }
+      .metric-strip .m-lbl { font-size: 10.5px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.6px; margin-top: 5px; }
+
+      /* Competition 2x2 matrix */
+      .matrix-cap { text-align: center; font-size: 12px; font-weight: 700; color: var(--primary); text-transform: uppercase; letter-spacing: 1px; margin: 4px 0 10px; }
+      .matrix { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin: 8px 0; }
+      .matrix .cell { border: 1px solid var(--border-strong); border-radius: var(--radius-md); padding: 16px 18px; background: white; page-break-inside: avoid; }
+      .matrix .cell .q { font-size: 11px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 8px; }
+      .matrix .cell .players { font-size: 13.5px; color: var(--text); line-height: 1.5; margin: 0; }
+      .matrix .cell.win { border: 2px solid var(--primary); background: var(--primary-bg); }
+      .matrix .cell.win .q { color: var(--primary); }
+      .matrix .cell.win .players { font-weight: 800; color: var(--primary-dark); font-size: 15px; }
+
+      /* Funnel */
+      .funnel { margin: 18px 0; }
+      .funnel-row { display: flex; align-items: center; gap: 14px; margin: 8px 0; }
+      .funnel-bar { height: 38px; border-radius: var(--radius-sm); display: flex; align-items: center; padding: 0 14px; color: white; font-weight: 700; font-size: 14px; white-space: nowrap; }
+      .funnel-meta { font-size: 13px; color: var(--text-muted); }
+      .funnel-meta strong { color: var(--text-dark); }
+
       @media (max-width: 640px) {
-        .two-col, .three-col, .team-grid { grid-template-columns: 1fr; }
+        .two-col, .three-col, .team-grid, .matrix { grid-template-columns: 1fr; }
         .stats-row { flex-direction: column; }
         .cover h1 { font-size: 32px; }
         .slide-title, h2 { font-size: 24px; }
+        .big-statement { font-size: 20px; }
+        .story-quote { font-size: 18px; }
       }
 
       @media print {
+        @page { size: A4; margin: 13mm 14mm; }
         body { font-size: 13px; }
         .container { padding: 0; max-width: none; }
-        .slide { padding: 10px 0; }
-        .cover { padding-top: 40px; }
-        .back-cover { padding-top: 30px; }
+        .slide {
+          min-height: 0;
+          padding: 10px 0;
+          margin: 0;
+          display: block;
+          page-break-after: auto;
+          break-after: auto;
+        }
+        .cover { padding-top: 0; }
+        .back-cover { padding-top: 16px; }
+        .slide-label, h2, h3 { page-break-after: avoid; }
         .cover h1 { font-size: 32px; }
         .slide-title, h2 { font-size: 22px; margin-bottom: 16px; }
+        .big-statement { font-size: 16px; margin: 12px 0 14px; }
+        .story-quote { font-size: 16px; margin: 16px 0; }
         .stat-number { font-size: 26px; }
         .stat-card { padding: 14px 16px; }
         .stats-row { margin: 16px 0; gap: 10px; }
@@ -257,7 +294,11 @@
         .team-card .bio { font-size: 11px; }
         table { font-size: 11px; }
         th, td { padding: 8px 10px; }
-        .pill { font-size: 11px; padding: 4px 10px; }
+        .metric-strip { gap: 10px 22px; margin-bottom: 16px; }
+        .metric-strip .m-num { font-size: 20px; }
+        .matrix .cell { padding: 10px 12px; }
+        .matrix .cell .players { font-size: 12px; }
+        .matrix .cell.win .players { font-size: 13px; }
       }
     </style>
   </head>
@@ -267,426 +308,427 @@
       <div class="slide cover">
         <img class="logo" src="Logo vector.svg" alt="Online Tribes Logo" />
         <h1>Online Tribes</h1>
-        <div class="tagline">The self-improving platform for belonging — in every language.</div>
-        <div class="sub">Live on iOS &amp; Android · two founders · 18 months · built on $0 outside capital</div>
-        <div class="badge">Pre-Seed Round — May 2026</div>
+        <div class="tagline">One right person changes a life.<br />We build the technology that finds them.</div>
+        <div class="sub">Live on iOS &amp; Android · lean international team · 18 months · $0 outside capital</div>
+        <!-- METRICS: verified from GA4 BigQuery export online-tribes-pl-4b26b, Nov 2025–Jun 2026. -->
+        <div class="metric-strip">
+          <div><span class="m-num">~1.6K</span><span class="m-lbl">Organic installs / mo · $0 CAC</span></div>
+          <div><span class="m-num">17.6K</span><span class="m-lbl">Registered users</span></div>
+          <div><span class="m-num">206</span><span class="m-lbl">Countries</span></div>
+          <div><span class="m-num">$0</span><span class="m-lbl">Outside capital</span></div>
+        </div>
+        <div class="badge">Pre-Seed — $500K · June 2026</div>
       </div>
 
       <!-- SLIDE 2 — THE PROBLEM -->
       <div class="slide">
         <div class="slide-label">The Problem</div>
-        <h2>Belonging is the one human need the social stack stopped serving.</h2>
+        <h2>One person can change a life.</h2>
 
-        <p class="lead">
-          Nearly 1 in 4 people worldwide feel lonely, and in 2023 the WHO declared loneliness a pressing global health threat. Yet the products built to "connect" us optimize for attention or for matching — never for a small group that knows your name and expects you back next week.
-        </p>
+        <div class="big-statement">The right people make a life rich. <span class="accent">Their absence makes it small — and today, it's left to chance.</span></div>
 
         <div class="two-col">
           <div class="card">
-            <h4>What today's social stack delivers</h4>
+            <h4>How people meet today</h4>
+            <p>Geography, luck, and algorithms built to sell attention — not to build a life.</p>
+          </div>
+          <div class="card">
+            <h4>What the market delivers</h4>
             <ul>
-              <li><strong>Reddit / X:</strong> content + outrage</li>
-              <li><strong>Discord:</strong> chat for gamers + work</li>
-              <li><strong>Tinder / Bumble:</strong> a match, then churn</li>
-              <li><strong>Meetup:</strong> dormant IRL stack</li>
+              <li><strong>Feeds</strong> — content, not people</li>
+              <li><strong>Communities</strong> — scale without intimacy</li>
+              <li><strong>Dating apps</strong> — a match, then churn</li>
             </ul>
-          </div>
-          <div class="card">
-            <h4>What no one delivers</h4>
-            <p>A persistent small group of 8–40 people who share a specific interest, recognise each other, and show up again — the thing every human had before the internet, now open to anyone, in any language.</p>
-          </div>
-        </div>
-
-        <p class="source">Source: WHO Commission on Social Connection, 2023; Meta–Gallup State of Social Connections, 2023.</p>
-      </div>
-
-      <!-- SLIDE 3 — THE VISION -->
-      <div class="slide">
-        <div class="slide-label">The Vision</div>
-        <h2>A place to belong — small, alive, and without a language barrier.</h2>
-
-        <p class="lead">
-          Online Tribes is building the missing primitive: small interest-based tribes (8–40 people) with the tools to stay alive — and because everything a member creates is translated in real time, a tribe can span the world. Belonging without borders.
-        </p>
-
-        <div class="three-col">
-          <div class="card">
-            <h4>Small by design</h4>
-            <p>Tribes cap and split as they grow. Belonging breaks above ~40 members; we honour that.</p>
-          </div>
-          <div class="card">
-            <h4>Leader-led, not feed-led</h4>
-            <p>Owners set rules, run rituals, and earn from engagement. Incentives aligned with retention, not impressions.</p>
-          </div>
-          <div class="card">
-            <h4>Borderless by default</h4>
-            <p>Real-time translation on every post, comment, and message. A member in Warsaw and one in São Paulo share one room — each reading in their own language.</p>
           </div>
         </div>
 
         <div class="highlight-box">
-          <p>Language is the largest, oldest barrier to belonging online. <strong>We remove it automatically — so who you connect with is decided by what you love, never by what you speak.</strong></p>
+          <p>The unmet need: <strong>technology that deliberately puts the right people into a person's life.</strong></p>
+        </div>
+      </div>
+
+      <!-- SLIDE 3 — WHY NOW: THE LAST STRONGHOLD -->
+      <div class="slide">
+        <div class="slide-label">Why Now</div>
+        <h2>Work was the last place adults made friends.<br />AI is ending it.</h2>
+
+        <div class="big-statement">A billion people are about to go looking for their people — <span class="accent">just as the technology to find them has finally arrived.</span></div>
+      </div>
+
+      <!-- SLIDE 4 — THE INSIGHT -->
+      <div class="slide">
+        <div class="slide-label">The Insight</div>
+        <h2>People don't want an AI friend.<br />They want the people AI can find.</h2>
+
+        <div class="story-quote">AI is better at finding the right five people than at being the sixth.</div>
+
+        <div class="three-col">
+          <div class="card">
+            <h4>Tested, not assumed</h4>
+            <p>We ran AI agents inside live communities. The moment users detect AI, engagement collapses. People want people.</p>
+          </div>
+          <div class="card">
+            <h4>AI that reads the room</h4>
+            <p>Our models read the emotional signal in conversation — not keywords, not clicks.</p>
+          </div>
+          <div class="card">
+            <h4>A compounding graph</h4>
+            <p>Every piece of content feeds a connection graph that matches better with every interaction.</p>
+          </div>
+        </div>
+
+        <div class="highlight-box">
+          <p><strong>AI as circle-builder, not feed-ranker</strong> — a direction no attention business can follow without breaking its own model.</p>
         </div>
       </div>
 
       <!-- SLIDE 4 — THE PRODUCT -->
       <div class="slide">
         <div class="slide-label">The Product</div>
-        <h2>An 18-month, two-founder product — already live and shipping.</h2>
+        <h2>Tell it what you're chasing.<br />It builds the room.</h2>
 
-        <p class="lead">
-          Most pre-seed social apps show a prototype. We shipped a real app: tribes, feed, chat, an AI introducer, real-time translation, ads, and payments — all in production on iOS and Android from a single Flutter codebase.
-        </p>
+        <p class="lead">Live on iOS &amp; Android. 18 months shipped — not a prototype.</p>
 
         <div class="two-col">
           <div class="card">
-            <h4>Shipped to production</h4>
+            <h4>In production</h4>
             <ul>
-              <li>Tribe creation, discovery, and join flow</li>
-              <li>In-tribe feed (posts, comments, reactions)</li>
-              <li>1:1 and group chat</li>
-              <li>Welcome tribes (onboarding cohorts)</li>
-              <li>AI introducer (matching by emotional context)</li>
-              <li>Real-time translation across the app</li>
-              <li>Push, deep linking, referrals</li>
+              <li>AI introducer — matches on goals</li>
+              <li>Small tribes, chat, feed, stories</li>
+              <li>Real-time translation on everything</li>
+              <li>Premium + ads built in</li>
             </ul>
           </div>
           <div class="card">
-            <h4>Monetization built &amp; live in code</h4>
+            <h4>Fully instrumented</h4>
             <ul>
-              <li>Premium subscription — Stripe, in the app</li>
-              <li>In-app ads — AdMob, in the app</li>
-              <li>Tribe-owner take-rate rails — ready to switch on</li>
-              <li>Waiting on traction, not on engineering</li>
+              <li>~90 event types · 175+ saved queries</li>
+              <li>Weekly loop: data → leak → fix</li>
+              <li>One codebase, both platforms</li>
             </ul>
           </div>
         </div>
 
         <div class="highlight-box">
-          <p>Real-time translation runs on <strong>everything a member creates</strong> — posts, comments, chat — so a single tribe can be genuinely global, and language never decides who you get to belong with.</p>
+          <p>Every number in this deck is queryable. <strong>Ask — we'll run it live in the room.</strong></p>
         </div>
       </div>
 
-      <!-- SLIDE 5 — EARLY TRACTION -->
+      <!-- SLIDE — THE PROOF -->
       <div class="slide">
-        <div class="slide-label">Early Traction</div>
-        <h2>Real organic pull — and it's accelerating.</h2>
+        <div class="slide-label">The Proof</div>
+        <h2>When the room is right, people stay.</h2>
 
         <div class="stats-row">
           <div class="stat-card">
-            <div class="stat-number">+249%</div>
-            <div class="stat-label">Device acquisitions</div>
-            <div class="stat-sub">39K · last 28d</div>
+            <div class="stat-number">26%</div>
+            <div class="stat-label">Best cohort retention</div>
+            <div class="stat-sub">already achieved</div>
           </div>
           <div class="stat-card">
-            <div class="stat-number">+114%</div>
-            <div class="stat-label">MAU growth</div>
-            <div class="stat-sub">11.1K · last 28d</div>
-          </div>
-          <div class="stat-card">
-            <div class="stat-number">~1,500</div>
-            <div class="stat-label">Organic new users / mo</div>
-            <div class="stat-sub">~$0 spend</div>
-          </div>
-          <div class="stat-card">
-            <div class="stat-number">~55K</div>
-            <div class="stat-label">Installs to date</div>
-            <div class="stat-sub">since Nov 2025</div>
+            <div class="stat-number">2.5×</div>
+            <div class="stat-label">Lift from one early action</div>
+            <div class="stat-sub">the activation lever</div>
           </div>
         </div>
 
-        <p>
-          After we switched off a small paid test, growth is almost entirely organic — and the last 28 days are up across the board: device acquisitions <strong>+249%</strong>, first opens <strong>+99%</strong>, MAU <strong>+114%</strong>. People keep arriving, for free. The loneliness pull is not hypothetical — it shows up in our funnel every week.
-        </p>
+        <div class="big-statement">We've already hit 26%.<br /><span class="accent">The raise makes it the rule, not the exception.</span></div>
 
-        <img class="chart-img" src="grow_users.png" alt="Growth — acquisitions, first opens, MAU and retention up over the last 28 days" />
-        <div class="chart-caption">Acquisition &amp; engagement, last 28 days (GA4 / Firebase)</div>
-
-        <p class="source">Source: GA4 / Firebase, project online-tribes, 28-day window ending 2026-05-30.</p>
-      </div>
-
-      <!-- SLIDE 6 — PEOPLE STAY -->
-      <div class="slide">
-        <div class="slide-label">Signals People Stay</div>
-        <h2>When the room is right, people come back.</h2>
-
-        <div class="stats-row">
-          <div class="stat-card">
-            <div class="stat-number">71.1%</div>
-            <div class="stat-label">WAU / MAU</div>
-            <div class="stat-sub">return within the week</div>
-          </div>
-          <div class="stat-card">
-            <div class="stat-number">45.5%</div>
-            <div class="stat-label">DAU / WAU</div>
-            <div class="stat-sub">return within the day</div>
-          </div>
-          <div class="stat-card">
-            <div class="stat-number">32.4%</div>
-            <div class="stat-label">DAU / MAU</div>
-            <div class="stat-sub">core stickiness</div>
-          </div>
-          <div class="stat-card">
-            <div class="stat-number">23.75%</div>
-            <div class="stat-label">Best cohort · W1</div>
-            <div class="stat-sub">organic week · n=619</div>
-          </div>
+        <div class="highlight-box">
+          <p><strong>The fix is known:</strong> AI seeds the room, pods drive the first conversation, the repeat loop keeps it alive.</p>
         </div>
-
-        <p>
-          Stickiness is the clearest early signal of belonging: <strong>71% of monthly users return within the week</strong>, and roughly a third come back daily. Our best organic weekly cohort returned at <strong>23.75% W1</strong> — competitive with strong consumer social. The product holds people.
-        </p>
-
-        <img class="chart-img" src="user_stikness.png" alt="User stickiness — DAU/WAU/MAU ratios trending up" />
-        <div class="chart-caption">User stickiness — DAU / WAU / MAU (GA4 / Firebase)</div>
-
-        <p class="source">Source: GA4 stickiness report, Firebase, project online-tribes.</p>
+        <p class="source">Registered-user cohorts · GA4 BigQuery export.</p>
       </div>
 
-      <!-- SLIDE 7 — SELF-IMPROVING PRODUCT -->
+      <!-- SLIDE 5 — HOW WE OPERATE -->
       <div class="slide">
-        <div class="slide-label">Self-Improving Product</div>
-        <h2>A product that reads its own data, helps build itself, and plans what's next.</h2>
+        <div class="slide-label">How We Operate</div>
+        <h2>A senior team, multiplied by AI agents.</h2>
 
-        <p class="lead">
-          We wired MCP servers across the entire stack. The same system that runs the app now reads its own analytics, assists development, and drafts the roadmap — so two founders ship like a much larger team, and the build-measure-learn loop gets faster every week.
-        </p>
+        <div class="big-statement"><span class="accent">$500K here spends like $1.5M.</span></div>
 
         <div class="two-col">
           <div class="card">
-            <h4>Reads its own analytics</h4>
-            <p>MCP pulls BigQuery &amp; GA4 directly — funnels, cohorts, per-feature usage — on demand. 193 events, 84+ pre-built queries.</p>
+            <h4>Agents build &amp; ship</h4>
+            <p>Write, test, release — app and backend.</p>
           </div>
           <div class="card">
-            <h4>Helps build &amp; test</h4>
-            <p>Agentic development plus on-device mobile testing, so changes are shipped and verified with far less human time.</p>
+            <h4>Agents read the data</h4>
+            <p>BigQuery on demand. They find the leak.</p>
           </div>
           <div class="card">
-            <h4>Helps plan</h4>
-            <p>The system surfaces the leak, proposes the fix, and feeds the sprint board — turning data into prioritized work automatically.</p>
+            <h4>Agents spark rooms</h4>
+            <p>Seed quiet tribes, then step back. Humans stay.</p>
           </div>
           <div class="card">
-            <h4>Keeps rooms alive</h4>
-            <p>Rotating AI personas detect thin or quiet tribes and intervene in real time to maintain interaction density.</p>
+            <h4>Agents market</h4>
+            <p>Founder voice, machine throughput.</p>
           </div>
         </div>
 
         <div class="highlight-box">
-          <p>The instrumentation isn't a dashboard — <strong>it's the engine.</strong> An autonomous loop that compounds: every week of data makes the next week's product decisions sharper.</p>
+          <p>The raise buys <strong>growth and product</strong> — not headcount.</p>
         </div>
       </div>
 
-      <!-- SLIDE 8 — WHAT'S NEXT -->
+      <!-- SLIDE 6 — TRACTION -->
       <div class="slide">
-        <div class="slide-label">What's Next</div>
-        <h2>From rooms to rituals: the activity-first tribe.</h2>
+        <div class="slide-label">Traction — Read It Straight</div>
+        <h2>The world keeps showing up. For free.</h2>
 
-        <p class="lead">
-          Chat keeps a tribe talking; recurring shared activity keeps it alive. Our next chapter makes the tribe revolve around things members do together — with AI forming small pods and facilitating them, so strangers always have something to do and a reason to come back.
-        </p>
+        <div class="stats-row">
+          <div class="stat-card">
+            <div class="stat-number">~1.6K</div>
+            <div class="stat-label">Organic installs / mo</div>
+            <div class="stat-sub">$0 CAC · no marketing engine</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-number">206</div>
+            <div class="stat-label">Countries</div>
+            <div class="stat-sub">449 device languages</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-number">17.6K</div>
+            <div class="stat-label">Registered</div>
+            <div class="stat-sub">32% of installs</div>
+          </div>
+        </div>
+
+        <div class="big-statement"><span class="accent">No ads. No growth team. They just keep coming.</span></div>
+
+        <div class="highlight-box">
+          <p>We turned paid acquisition <strong>off</strong> — and demand didn't stop. That's pull, not spend.</p>
+        </div>
+        <p class="source">GA4 BigQuery export · online-tribes-pl-4b26b · Nov 2025 – Jun 2026.</p>
+      </div>
+
+      <!-- SLIDE — NORTH STAR -->
+      <div class="slide">
+        <div class="slide-label">The 12-Month Plan</div>
+        <h2>One question. Answered with data.</h2>
+
+        <div class="big-statement">Do two strangers AI introduced<br /><span class="accent">still show up for each other 90 days later?</span></div>
 
         <div class="three-col">
           <div class="card">
-            <h4>Live "doings"</h4>
-            <p>Schedulable synchronous activities inside a tribe: co-work sessions, discussion circles, skill practice, watch-alongs, challenges.</p>
+            <h4>5 minutes</h4>
+            <p>Goal in → tribe proposed.</p>
           </div>
           <div class="card">
-            <h4>AI pods</h4>
-            <p>The matching engine groups ~5 members into small activity pods inside a tribe — connection by design, not a dead match card.</p>
+            <h4>&lt; 48 hours</h4>
+            <p>First real interaction — message, reply, or join.</p>
           </div>
           <div class="card">
-            <h4>AI facilitation</h4>
-            <p>Icebreakers, prompts, and light roles so a pod of strangers always has something to say — the structure most groups lack.</p>
-          </div>
-          <div class="card">
-            <h4>The repeat loop</h4>
-            <p>After an activity, nudge the same pod to do it again. Repetition is the retention engine — momentum from showing up.</p>
-          </div>
-          <div class="card">
-            <h4>Offline bridge</h4>
-            <p>Once trust forms online, surface an optional real-world meetup for the pod — the belonging payoff.</p>
-          </div>
-          <div class="card">
-            <h4>More languages</h4>
-            <p>Expand real-time translation to every major user-base language — widening the borderless tribe even further.</p>
+            <h4>90 days</h4>
+            <p>Still connected. The North Star.</p>
           </div>
         </div>
 
         <div class="highlight-box">
-          <p>Every item above is already specced on our board. <strong>This is execution, not exploration.</strong></p>
+          <p>Chat, live exchanges, posts, stories — <strong>many ways to stay, with more shipping every month.</strong> Not DAU, not installs: if AI-built circles stay alive at 90 days, everything else follows.</p>
         </div>
       </div>
 
-      <!-- SLIDE 9 — MARKET -->
+      <!-- SLIDE 9 — CONNECTION INFRASTRUCTURE -->
+      <div class="slide">
+        <div class="slide-label">The Vision</div>
+        <h2>Not an app.<br />Infrastructure for human connection.</h2>
+
+        <div class="big-statement"><span class="accent">Many tools. One connection graph.</span></div>
+
+        <div class="three-col">
+          <div class="card">
+            <h4>The apps</h4>
+            <p>iOS &amp; Android. Find your people, in any language.</p>
+          </div>
+          <div class="card">
+            <h4>Messenger events — live</h4>
+            <p>A WhatsApp &amp; Telegram bot that finds the right people and spins up mini real-world meetups.</p>
+            <p style="margin-top:8px"><a href="https://viva-tribe.omnia-inteligance.com/">viva-tribe.omnia-inteligance.com</a></p>
+          </div>
+          <div class="card">
+            <h4>Strangers to Friends — next</h4>
+            <p>Live Zoom rooms that sort strangers into the right small group, in real time.</p>
+          </div>
+        </div>
+
+        <div class="highlight-box">
+          <p>Every tool feeds <strong>one graph of who belongs with whom</strong> — and every interaction makes the next match better.</p>
+        </div>
+      </div>
+
+      <!-- SLIDE 10 — MARKET -->
       <div class="slide">
         <div class="slide-label">Market</div>
-        <h2>Belonging is the only social vertical where retention compounds with depth.</h2>
+        <h2>Everyone owns a corner.<br />Ours is empty.</h2>
 
-        <div class="three-col">
-          <div class="card" style="text-align:center">
-            <h4>Attention (Meta, X, TikTok)</h4>
-            <p>$700B+ market. Feed-driven; depth degrades engagement. Saturated.</p>
+        <div class="matrix-cap">← Single language &nbsp;·&nbsp; Borderless →</div>
+        <div class="matrix">
+          <div class="cell">
+            <div class="q">Small-group · single language</div>
+            <p class="players">Discord, Geneva, Mighty, Skool</p>
           </div>
-          <div class="card" style="text-align:center">
-            <h4>Matching (Tinder, Bumble)</h4>
-            <p>$8B+ market. Retention collapses post-match by design. Margins under pressure.</p>
+          <div class="cell win">
+            <div class="q">Small-group · borderless · AI-matched</div>
+            <p class="players">Online Tribes — alone here.</p>
           </div>
-          <div class="card" style="text-align:center">
-            <h4>Belonging (open)</h4>
-            <p>The only social primitive where deeper relationships compound usage. No category leader.</p>
+          <div class="cell">
+            <div class="q">Broadcast · single language</div>
+            <p class="players">Reddit, Meetup</p>
+          </div>
+          <div class="cell">
+            <div class="q">Broadcast · borderless</div>
+            <p class="players">Meta, TikTok, X</p>
           </div>
         </div>
 
-        <h3 style="margin-top:24px">Comparables — proof the category is fundable</h3>
         <ul>
-          <li><strong>Discord</strong> — $15B valuation; group-chat for synchronous use (gaming, work).</li>
-          <li><strong>Geneva</strong> — raised $26M; group-chat without the tribe-leader incentive layer.</li>
-          <li><strong>Mighty Networks</strong> — $100M+ raised; creator-led communities, not interest-based small groups.</li>
-          <li><strong>Skool</strong> — profitable; courses-led community, not horizontal belonging.</li>
+          <li><strong>Discord</strong> — $15B · <strong>Geneva</strong> — acquired by Bumble · <strong>Mighty</strong> — $100M+ raised · <strong>Skool</strong> — profitable</li>
         </ul>
+
         <div class="highlight-box">
-          <p>None build the small-group, horizontal belonging primitive for individuals — <strong>and none make it borderless with real-time translation. That's the category we're opening.</strong></p>
+          <p>Others optimize for attention, or for communities. <strong>No one optimizes for the relationship itself</strong> — the tools that help people truly understand each other and bond, across any border.</p>
         </div>
       </div>
 
-      <!-- SLIDE 10 — BUSINESS MODEL -->
+      <!-- SLIDE 11 — BUSINESS MODEL -->
       <div class="slide">
         <div class="slide-label">Business Model</div>
-        <h2>The rails are built. We turn them on with traction.</h2>
-
-        <p class="lead">
-          Monetization is engineered and live in the app — three revenue rails, ready to scale. We've deliberately kept the throttle low, because for belonging, retention precedes revenue: a community you don't leave is one you'll happily pay for.
-        </p>
+        <h2>Built. Tested. Waiting on purpose.</h2>
 
         <div class="three-col">
           <div class="card">
-            <h4>B2C Premium — live</h4>
-            <p>Stripe in the app. Unlimited joins, ad-free, premium matching and translation.</p>
+            <h4>Premium</h4>
+            <p>Built. Priced post-proof.</p>
           </div>
           <div class="card">
-            <h4>Ads — live</h4>
-            <p>AdMob in the app. The free tier monetizes itself as volume scales.</p>
+            <h4>Ads</h4>
+            <p>Built. Kept minimal.</p>
           </div>
           <div class="card">
-            <h4>Tribe-owner take-rate — next</h4>
-            <p>Owners earn from engaged members; platform fee 15–20%. Turns best users into aligned, paid distribution.</p>
+            <h4>Owner payouts</h4>
+            <p>Owners earn from member care. Platform takes 15–20%. The flywheel.</p>
           </div>
         </div>
 
-        <div class="highlight-box">
-          <p>Three revenue rails already in the product. The question isn't <em>"can we build monetization"</em> — <strong>it's "how big does belonging get."</strong></p>
+        <div class="honest-box">
+          <div class="label">Why wait</div>
+          <p>Selling into 8% retention buys churn. <strong>A circle you don't leave is a circle you'll pay for.</strong> Fix the room first.</p>
         </div>
       </div>
 
-      <!-- SLIDE 11 — TEAM -->
+      <!-- SLIDE 12 — TEAM -->
       <div class="slide">
         <div class="slide-label">Team</div>
-        <h2>Two founders, 18 months, a shipped, instrumented, self-improving product — on $0 outside capital.</h2>
+        <h2>A senior international team — built and shipped on $0.</h2>
 
         <div class="team-grid">
           <div class="team-card">
             <div class="name">Franek Jablonski</div>
             <div class="role">Co-founder · CTO</div>
-            <p class="bio">10+ years engineering. Built systems at Visa, led government delivery (Scotland, One Willow). Owns the product + analytics stack.</p>
+            <p class="bio">Visa, gov delivery. Product + AI agents.</p>
           </div>
           <div class="team-card">
             <div class="name">Marianna Jablonska</div>
             <div class="role">Co-founder · Growth &amp; UX</div>
-            <p class="bio">CS + digital marketing. 8+ years bridging product, design, and acquisition. Owns onboarding + retention loops.</p>
+            <p class="bio">CS + marketing. Activation + retention.</p>
           </div>
           <div class="team-card">
             <div class="name">Dominik Mazurkiewicz</div>
-            <div class="role">Senior Mobile Engineer (contract)</div>
-            <p class="bio">Flutter and cross-platform mobile. Core app development.</p>
+            <div class="role">Senior Mobile Engineer</div>
+            <p class="bio">Flutter. Core app.</p>
           </div>
           <div class="team-card">
             <div class="name">Anis Boulaid</div>
-            <div class="role">DevOps Lead (contract)</div>
-            <p class="bio">18+ years cloud and CI/CD. Keeps Firebase + infra honest.</p>
+            <div class="role">DevOps Lead</div>
+            <p class="bio">18+ yrs cloud. Infra.</p>
+          </div>
+          <div class="team-card">
+            <div class="name">Shahwaiz Tahir</div>
+            <div class="role">QA Engineer</div>
+            <p class="bio">Selenium, Appium. Release stability.</p>
+          </div>
+          <div class="team-card">
+            <div class="name">Fadli</div>
+            <div class="role">Performance Marketing</div>
+            <p class="bio">Paid growth, media buying.</p>
           </div>
         </div>
 
         <div class="highlight-box">
-          <p><strong>Post-raise hires:</strong> AI/ML Engineer (matching &amp; facilitation), full-time Senior Flutter, Community Lead to seed the first activity-first communities. From 2 founders + contractors to a focused full-time core.</p>
+          <p>We've already <strong>assembled, led and scaled a distributed senior team</strong> — we know how to grow one.</p>
         </div>
       </div>
 
-      <!-- SLIDE 12 — THE ASK -->
+      <!-- SLIDE 13 — THE ASK -->
       <div class="slide">
         <div class="slide-label">The Ask</div>
-        <h2>Raising $1.5M to turn organic pull into a global belonging platform.</h2>
+        <h2>$500K. 12 months. The category's only open question — answered.</h2>
 
-        <p class="lead">
-          We're not asking you to fund a search for product. We're asking you to pour fuel on a live product with real organic growth, real stickiness, built-in monetization, and a self-improving build loop — and scale it into the vision.
-        </p>
+        <p class="lead">Three jobs for the money: fix activation, <strong>guarantee real humans</strong>, and fuel the demand we already get for free.</p>
 
-        <div style="margin: 20px 0">
+        <div style="margin: 16px 0">
           <div class="funds-bar">
-            <div style="width: 35%; background: var(--primary)">35% Engineering</div>
-            <div style="width: 30%; background: var(--primary-light)">30% Growth &amp; Community</div>
+            <div style="width: 40%; background: var(--primary)">40% Marketing &amp; Community</div>
+            <div style="width: 30%; background: var(--primary-light)">30% Product &amp; Trust</div>
             <div style="width: 20%; background: #8b5cf6">20% Founders</div>
-            <div style="width: 15%; background: var(--primary-dark)">15% Infra &amp; Legal</div>
+            <div style="width: 10%; background: var(--primary-dark)">10% Infra</div>
           </div>
         </div>
 
         <div class="two-col">
           <div class="card">
-            <h4>Engineering (35% · $525K)</h4>
+            <h4>Marketing &amp; Community — $200K</h4>
             <ul>
-              <li>Ship the activity-first roadmap (pods + facilitation)</li>
-              <li>AI/ML engineer for matching &amp; introducer</li>
-              <li>Expand real-time translation; Senior Flutter full-time</li>
+              <li>Goal-targeted acquisition into seeded tribes</li>
+              <li>Community Lead + owner program</li>
             </ul>
           </div>
           <div class="card">
-            <h4>Growth &amp; Community (30% · $450K)</h4>
+            <h4>Product &amp; Trust — $150K</h4>
             <ul>
-              <li>Scale proven organic acquisition</li>
-              <li>Seed the first activity-first communities</li>
-              <li>Community Lead + tribe-owner incentives</li>
+              <li>AI pods + facilitation — the activation fix</li>
+              <li><strong>Verified, real humans</strong> — identity checks + AI that filters bots &amp; scammers</li>
             </ul>
           </div>
           <div class="card">
-            <h4>Founders (20% · $300K)</h4>
+            <h4>Founders — $100K</h4>
             <ul>
-              <li>2 founders at survival salary, 18 months</li>
+              <li>Survival salary, 12 months</li>
             </ul>
           </div>
           <div class="card">
-            <h4>Infra &amp; Legal (15% · $225K)</h4>
+            <h4>Infra &amp; Legal — $50K</h4>
             <ul>
-              <li>Firebase + AI inference</li>
-              <li>Stripe Connect, GDPR, safety/moderation</li>
+              <li>Firebase, AI inference, GDPR</li>
             </ul>
           </div>
         </div>
 
         <div class="highlight-box">
-          <p><strong>The milestone we'll be judged on at month 18:</strong> an activity-first belonging platform with a flattening retention curve, monetization switched on, and a repeatable playbook to grow tribes in any language.</p>
+          <p><strong>Month 12:</strong> a base of verified, active members, cohorts moving toward 26%, a measured 90-day connection rate — and the playbook for the seed.</p>
         </div>
       </div>
 
-      <!-- SLIDE 13 — CLOSE -->
+      <!-- SLIDE 14 — CLOSE -->
       <div class="slide back-cover">
-        <h2>We built the product, the engine, and the loop. Fund us to scale belonging — everywhere, in every language.</h2>
-        <p class="subtitle">
-          $1.5M pre-seed. 18 months. From organic pull to a self-improving, global belonging platform — in a category no one else is building.
-        </p>
+        <h2>Who's around you decides who you become.<br />We're making that a choice — for everyone, in every language.</h2>
+        <p class="subtitle">$500K pre-seed · 12 months · the category no one else is building.</p>
 
         <div class="qr-container">
           <div class="qr-code">
-            <img src="QR_code.png" alt="QR Code — Download Online Tribes" />
+            <img src="qe_code.svg" alt="QR Code — Download Online Tribes" />
           </div>
           <div class="contact-info">
             <p><strong>Download:</strong> iOS &amp; Android</p>
-            <p><strong>Web:</strong> online-tribes.com</p>
+            <p><strong>Web:</strong> <a href="https://online-tribes.com">online-tribes.com</a></p>
           </div>
         </div>
 
-        <div class="contact-email">franek@online-tribes.com</div>
-        <p style="color: var(--text-muted); font-size: 14px; margin: 4px 0">marianna@online-tribes.com</p>
+        <div class="contact-email"><a href="mailto:franek@online-tribes.com">franek@online-tribes.com</a></div>
+        <p style="color: var(--text-muted); font-size: 14px; margin: 4px 0"><a href="mailto:marianna@online-tribes.com">marianna@online-tribes.com</a></p>
         <p style="color: var(--text-muted); font-size: 13px; margin-top: 24px">
-          <strong>Online Tribes</strong> — The self-improving platform for belonging.
+          <strong>Online Tribes</strong> — choose your circle on purpose.
         </p>
       </div>
     </div>

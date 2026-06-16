@@ -28,6 +28,33 @@ const REQUEUE_BASE_MS = 1_000;
 const REQUEUE_CAP_MS = 30_000;
 const HOST_ID = process.env.BOT_HOST_ID ?? `laptop-${Math.random().toString(36).slice(2, 8)}`;
 
+// Ollama health probe for the heartbeat. The heartbeat proves the bot PROCESS is
+// alive and can reach Firestore — but not that the local LLM ("the brain") is
+// actually serving. So each beat we ping Ollama and stamp ollamaOk on the
+// heartbeat doc; the cloud brainWatchdog uses it to page Franek when the model
+// is wedged even though the process is up. Skipped when no local backend is in
+// use (then Ollama being down isn't a failure mode).
+const OLLAMA_BASE_URL = process.env.OLLAMA_BASE_URL ?? "http://localhost:11434";
+const LLM_BACKEND = process.env.LLM_BACKEND ?? "local-first";
+const USES_LOCAL_LLM = LLM_BACKEND === "local" || LLM_BACKEND === "local-first";
+const OLLAMA_PROBE_TIMEOUT_MS = Number(process.env.OLLAMA_PROBE_TIMEOUT_MS ?? 5000);
+
+async function probeOllama(): Promise<{ ok: boolean; error: string | null }> {
+  if (!USES_LOCAL_LLM) return { ok: true, error: null }; // local model not in use
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), OLLAMA_PROBE_TIMEOUT_MS);
+  try {
+    const res = await fetch(`${OLLAMA_BASE_URL}/api/tags`, { signal: ctrl.signal });
+    if (!res.ok) return { ok: false, error: `ollama /api/tags ${res.status}` };
+    return { ok: true, error: null };
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    return { ok: false, error: `ollama unreachable: ${msg}`.slice(0, 200) };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 // Transient conditions worth retrying rather than failing. Matched against the
 // thrown error message so an overload burst becomes delay, not lost replies.
 //  - Anthropic side: rate limits (429) and overloads (529).
@@ -50,6 +77,7 @@ const inFlight = new Set<string>();
 const enrichInFlight = new Set<string>();
 
 async function heartbeat(): Promise<void> {
+  const ollama = await probeOllama();
   await db.doc(`system/botHeartbeat`).set(
     {
       hostId: HOST_ID,
@@ -57,6 +85,10 @@ async function heartbeat(): Promise<void> {
       inFlight: inFlight.size,
       maxConcurrent: MAX_CONCURRENT,
       version: process.env.npm_package_version ?? "0.1.0",
+      llmBackend: LLM_BACKEND,
+      ollamaOk: ollama.ok,
+      ollamaError: ollama.error,
+      ollamaCheckedAt: FieldValue.serverTimestamp(),
     },
     { merge: true }
   );

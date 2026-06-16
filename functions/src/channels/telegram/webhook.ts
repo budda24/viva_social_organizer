@@ -213,7 +213,8 @@ export const telegramWebhook = onRequest(
       await queueReply(db, {
         chatId,
         uid: "unbound",
-        body: "Open your invite link from the Viva Tribe site to connect this chat.",
+        body:
+          'To connect this chat, sign in with LinkedIn at viva-social-organizer.web.app/in, then tap "Join on Telegram".',
       });
       res.status(200).send("ok");
       return;
@@ -226,7 +227,9 @@ export const telegramWebhook = onRequest(
       await queueReply(db, {
         chatId,
         uid: "unbound",
-        body: "I don't recognise this chat yet. Click the Telegram link from your Viva Tribe invite to connect.",
+        body:
+          "I don't recognise this chat yet. Sign in with LinkedIn at viva-social-organizer.web.app/in, " +
+          'then tap "Join on Telegram" to (re)connect this chat.',
       });
       res.status(200).send("ok");
       return;

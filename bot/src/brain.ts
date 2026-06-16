@@ -59,6 +59,7 @@ import {
   normalizeLang,
   parseLangReply,
   parseLanguageCommand,
+  stripMarkdownLinks,
   type Lang,
 } from "./i18n.js";
 
@@ -644,21 +645,6 @@ export function stripIntroNudge(reply: string): string {
   return out || reply;
 }
 
-// Claude sometimes formats a URL as a Markdown link `[label](url)` despite the
-// plain-text rule. Both channels send with no parse_mode, so the literal
-// brackets/parens leak AND Telegram auto-links the bracketed *and* the
-// parenthesised URL — the link renders twice (Shah, Jun 10: "Have a Fun" group
-// link). Flatten any `[label](url)` to plain text: just the URL when the label
-// is itself a URL (the doubling case), else "label: url". The href must be
-// http(s) so ordinary prose like "see option (a)" is never touched.
-const MD_LINK_RE = /\[([^\]\n]+)\]\((https?:\/\/[^)\s]+)\)/g;
-export function stripMarkdownLinks(text: string): string {
-  return text.replace(MD_LINK_RE, (_m, label: string, url: string) => {
-    const l = label.trim();
-    return /^https?:\/\//i.test(l) ? url : `${l}: ${url}`;
-  });
-}
-
 // "find me a climate VC" → "climate VC" (strip the verb and a leading article)
 // for use in the intro opener / button callback_data.
 export function introTopicFrom(body: string): string {
@@ -825,6 +811,108 @@ export function buildBuddyButtons(
     const t = reason.slice(0, Math.max(0, room)).trim();
     const data = t ? `introto ${m.uid} ${t}` : `introto ${m.uid}`;
     return { text: `${msg(lang).btn.connect} ${m.name}`.slice(0, 60), data };
+  });
+}
+
+// ── Topic search (deterministic, role-aware) ─────────────────────────────────
+// `find me <topic>` (e.g. "a climate VC", "an AI engineer") used to go to the
+// local 14B, which picked wrong-role people (an event host for "a VC") and, as
+// history grew, parroted a prior answer regardless of the new query. We make it
+// deterministic like buddy: detect the requested ROLE, hard-filter the directory
+// to members who genuinely hold it (investor is the marquee query and is reliably
+// keyword-detectable even from terse bios — "fund", "angel"), then rank by
+// semantic relevance to the query. NO conversation history is consulted, so it
+// cannot anchor on a stale match.
+const TOPIC_RESULTS = Number(process.env.TOPIC_RESULTS ?? 3);
+
+// Investor language in the QUERY ("find me a (climate) VC / angel / fund …").
+export const INVESTOR_TOPIC_RE =
+  /\b(vc|vcs|venture\s+capitalists?|investors?|angels?|\blps?\b|limited\s+partners?|funds?|capital)\b/i;
+
+// Investor signal in a member's IDENTITY (who they ARE). `lookingFor` is the
+// OPPOSITE side (who they WANT) and is excluded on purpose — a founder hunting a
+// VC must never read as a VC. This is the role-direction rule, enforced in code.
+const INVESTOR_IDENTITY_RE =
+  /\b(fund|funds|vc|vcs|venture|ventures|capital|investor|invests?|investing|angel|angels|\blps?\b|general\s+partner|managing\s+partner|partner\s+at)\b/i;
+
+function memberIdentityText(m: DirectoryMember): string {
+  // Identity = who they ARE: bio, company, and the domains they work in. Excludes
+  // `goal`, `enrichedMatchSignals` ("wants to meet"), and `lookingFor` — those are
+  // the SEEKING side. Including them would read "wants to meet AI VCs" as BEING an
+  // AI VC: the exact role-direction bug this matcher exists to kill.
+  const topics = (m.enrichedTopics.length ? m.enrichedTopics : m.topics).join(", ");
+  return [m.enrichedBio || m.bio, m.enrichedCompany, topics]
+    .filter(Boolean)
+    .join(" | ");
+}
+
+export function isInvestorMember(m: DirectoryMember): boolean {
+  return INVESTOR_IDENTITY_RE.test(memberIdentityText(m));
+}
+
+// Rank reachable members by semantic relevance to the topic query. Reuses cached
+// member embeddings; embeds the query once. `pool` lets the caller pre-filter by
+// role (e.g. investors only) before ranking the survivors by domain fit. A tiny
+// lexical-overlap term keeps ranking sane if embeddings are momentarily down.
+export async function rankTopicMatches(
+  members: DirectoryMember[],
+  selfUid: string,
+  queryText: string,
+  limit: number,
+  pool?: (m: DirectoryMember) => boolean
+): Promise<DirectoryMember[]> {
+  let others = members.filter((m) => m.uid !== selfUid);
+  if (pool) others = others.filter(pool);
+  if (others.length === 0) return [];
+  let qvec: number[] | undefined;
+  try {
+    [qvec] = await embed([queryText]);
+  } catch (e) {
+    console.warn(`[bot] topic embed failed, ranking on lexical overlap: ${e instanceof Error ? e.message : e}`);
+  }
+  const ql = queryText.toLowerCase();
+  return others
+    .map((m) => {
+      const v = memberEmbedCache.get(m.uid)?.vec ?? [];
+      const sem = qvec?.length && v.length ? cosine(qvec, v) : 0;
+      const lex = memberIdentityText(m)
+        .toLowerCase()
+        .split(/\W+/)
+        .filter((w) => w.length > 3 && ql.includes(w)).length;
+      return { m, score: sem + lex * 0.01 };
+    })
+    .sort((a, b) => b.score - a.score)
+    .slice(0, limit)
+    .map((r) => r.m);
+}
+
+// Topic-browse cards — same shape as the buddy list, one Intro button per person
+// (double opt-in). `topic` rides in the callback so the tapped opener names it.
+export function buildTopicReply(
+  matches: DirectoryMember[],
+  topic: string,
+  lang: Lang,
+  footer: string
+): string {
+  const lines = [msg(lang).topicIntro(topic), ""];
+  matches.forEach((m, i) => {
+    const about = buddyAbout(m);
+    lines.push(`${i + 1}. ${m.name || "A member"}${about ? ` — ${about}` : ""}`);
+  });
+  lines.push("", footer);
+  return lines.join("\n");
+}
+
+export function buildTopicButtons(
+  matches: DirectoryMember[],
+  lang: Lang,
+  topic: string
+): OutboxButton[] {
+  return matches.map((m) => {
+    const room = 64 - `introto ${m.uid} `.length;
+    const t = topic.slice(0, Math.max(0, room)).trim();
+    const data = t ? `introto ${m.uid} ${t}` : `introto ${m.uid}`;
+    return { text: `${msg(lang).btn.introTo} ${m.name}`.slice(0, 60), data };
   });
 }
 
@@ -3031,6 +3119,53 @@ export async function processMessage(deps: ProcessMessageDeps): Promise<void> {
       { role: "assistant", content: buddyReply, at: Timestamp.now() },
     ]);
     await inboxDoc.ref.update({ intent: "buddy" });
+    return;
+  }
+
+  // ── Topic browse (deterministic, role-aware) ───────────────────────────────
+  // `find me <topic>` short-circuits the 14B too. Detect role, hard-filter the
+  // directory to members who genuinely hold it (investor first — the marquee
+  // query), then rank survivors by relevance. History-free, so it can't anchor on
+  // a previous answer the way the model-driven path did (the climate-VC bug).
+  if (isTopicBrowse(body) && !eventMode && !editMode && !freeNowMode) {
+    const topic = introTopicFrom(body) || body.trim();
+    const investorQuery = INVESTOR_TOPIC_RE.test(body);
+    const matches = await rankTopicMatches(
+      members,
+      uid,
+      topic,
+      TOPIC_RESULTS,
+      investorQuery ? isInvestorMember : undefined
+    );
+
+    let topicReply: string;
+    let topicTelegramBody: string | undefined;
+    let topicButtons: OutboxButton[] | undefined;
+    if (matches.length === 0) {
+      // Role asked for, nobody holds it (or nothing matched) — say so honestly and
+      // offer a buddy. Never substitute a wrong-role person (the old failure mode).
+      topicReply = msg(lang).topicNobody(topic);
+    } else {
+      topicReply = buildTopicReply(matches, topic, lang, msg(lang).introBrowseNudge);
+      topicTelegramBody = buildTopicReply(matches, topic, lang, msg(lang).buddyTapHint);
+      topicButtons = buildTopicButtons(matches, lang, topic);
+    }
+
+    await writeOutbox(db, {
+      provider,
+      uid,
+      phone,
+      chatId,
+      body: topicReply,
+      telegramBody: topicTelegramBody,
+      buttons: topicButtons,
+      type: "browse",
+    });
+    await appendTurns(db, uid, [
+      { role: "user", content: body, at: Timestamp.now() },
+      { role: "assistant", content: topicReply, at: Timestamp.now() },
+    ]);
+    await inboxDoc.ref.update({ intent: "topic" });
     return;
   }
 

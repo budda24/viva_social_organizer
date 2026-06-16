@@ -3,24 +3,24 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Online Tribes — Pitch Deck v6</title>
+    <title>Omnia Intelligence — Pitch v1</title>
     <style>
       @import url("https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap");
 
       :root {
-        --primary: #7c3aed;
-        --primary-light: #a78bfa;
-        --primary-dark: #5b21b6;
-        --primary-bg: #f5f0ff;
-        --text-dark: #111827;
+        --primary: #1e56e8;
+        --primary-light: #4f7eff;
+        --primary-dark: #0f2c7a;
+        --primary-bg: #eef3ff;
+        --text-dark: #0c1424;
         --text: #374151;
         --text-muted: #6b7280;
         --bg: #ffffff;
         --bg-subtle: #fafafa;
-        --border: rgba(124, 58, 237, 0.12);
-        --border-strong: rgba(124, 58, 237, 0.2);
-        --shadow-sm: 0 1px 3px rgba(124, 58, 237, 0.08);
-        --shadow-md: 0 4px 12px rgba(124, 58, 237, 0.12);
+        --border: rgba(30, 86, 232, 0.12);
+        --border-strong: rgba(30, 86, 232, 0.22);
+        --shadow-sm: 0 1px 3px rgba(30, 86, 232, 0.08);
+        --shadow-md: 0 4px 12px rgba(30, 86, 232, 0.12);
         --radius-sm: 8px;
         --radius-md: 12px;
         --radius-lg: 16px;
@@ -78,9 +78,11 @@
 
       .source { font-size: 12px; color: var(--text-muted); font-style: italic; margin-top: 8px; }
 
+      code { background: var(--primary-bg); color: var(--primary-dark); padding: 1px 6px; border-radius: 5px; font-size: 0.9em; font-family: "SFMono-Regular", Consolas, monospace; }
+
       /* Cover */
       .cover { text-align: center; padding-top: 80px; }
-      .cover .logo { width: 80px; height: 80px; border-radius: var(--radius-md); object-fit: contain; margin-bottom: 20px; }
+      .cover .logo { width: 84px; height: 84px; border-radius: var(--radius-md); object-fit: cover; margin-bottom: 20px; box-shadow: var(--shadow-md); }
       .cover h1 { font-size: 44px; font-weight: 900; color: var(--text-dark); letter-spacing: -0.03em; margin-bottom: 8px; }
       .cover .tagline { font-size: 20px; color: var(--primary); font-weight: 600; margin-bottom: 12px; }
       .cover .sub { font-size: 15px; color: var(--text-muted); margin-bottom: 32px; }
@@ -139,25 +141,6 @@
       li::marker { color: var(--primary); font-weight: 700; }
       strong { color: var(--text-dark); font-weight: 700; }
 
-      /* Table */
-      table {
-        width: 100%;
-        border-collapse: separate;
-        border-spacing: 0;
-        margin: 20px 0;
-        font-size: 14px;
-        border-radius: var(--radius-md);
-        overflow: hidden;
-        border: 1px solid var(--border-strong);
-      }
-      th, td { padding: 12px 16px; text-align: left; border-bottom: 1px solid var(--border); }
-      th { background: var(--bg-subtle); font-weight: 700; color: var(--text-dark); font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px; }
-      tr:last-child td { border-bottom: none; }
-      td.num { text-align: right; font-variant-numeric: tabular-nums; font-weight: 600; color: var(--text-dark); }
-      .row-highlight { background: var(--primary-bg); }
-      .row-highlight td { color: var(--text-dark); font-weight: 700; }
-      .row-bad td { color: var(--red); font-weight: 700; }
-
       /* Cards */
       .card {
         background: white;
@@ -174,6 +157,9 @@
 
       .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin: 16px 0; }
       .three-col { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; margin: 16px 0; }
+
+      /* Steps */
+      .step-num { display: inline-flex; align-items: center; justify-content: center; width: 26px; height: 26px; border-radius: 50%; background: var(--primary); color: white; font-size: 13px; font-weight: 800; margin-bottom: 8px; }
 
       /* Team */
       .team-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin: 20px 0; }
@@ -192,15 +178,9 @@
       .back-cover { text-align: center; padding-top: 60px; }
       .back-cover h2 { color: var(--primary); font-size: 32px; margin-bottom: 12px; }
       .back-cover .subtitle { font-size: 18px; color: var(--text); margin-bottom: 32px; }
-
-      .qr-container { display: flex; align-items: center; justify-content: center; gap: 40px; margin: 28px 0; flex-wrap: wrap; }
-      .qr-code { width: 120px; height: 120px; background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 8px; }
-      .qr-code img { width: 100%; height: 100%; object-fit: contain; }
-      .contact-info { text-align: left; }
-      .contact-info p { margin: 10px 0; font-size: 16px; }
       .contact-email { font-size: 20px; font-weight: 700; color: var(--primary); margin: 16px 0; }
 
-      /* Use of funds bar */
+      /* Funds / flow bar */
       .funds-bar { display: flex; border-radius: var(--radius-md); overflow: hidden; margin: 20px 0 24px; height: 40px; font-size: 12px; font-weight: 700; color: white; }
       .funds-bar > div { display: flex; align-items: center; justify-content: center; padding: 0 8px; white-space: nowrap; }
 
@@ -232,8 +212,6 @@
         .team-card .name { font-size: 13px; }
         .team-card .role { font-size: 11px; }
         .team-card .bio { font-size: 11px; }
-        table { font-size: 11px; }
-        th, td { padding: 8px 10px; }
       }
     </style>
   </head>
@@ -241,406 +219,309 @@
     <div class="container">
       <!-- SLIDE 1 — COVER -->
       <div class="slide cover">
-        <img class="logo" src="Logo vector.svg" alt="Online Tribes Logo" />
-        <h1>Online Tribes</h1>
-        <div class="tagline">A fully-instrumented social platform for belonging.</div>
-        <div class="sub">Live on iOS &amp; Android · two founders · 18 months · built on $0 outside capital</div>
-        <div class="badge">Pre-Seed Round — May 2026</div>
+        <img class="logo" src="logo.jpeg" alt="Omnia Intelligence Logo" />
+        <h1>Omnia Intelligence</h1>
+        <div class="tagline">Automation your whole team can actually use.</div>
+        <div class="sub">Operator-built AI automation for SMBs · built on the machine, shipped to the team, handed over with a guide</div>
+        <div class="badge">Design-Partner Program — 2026</div>
       </div>
 
-      <!-- SLIDE 2 — PROBLEM -->
+      <!-- SLIDE 2 — THE SHIFT -->
+      <div class="slide">
+        <div class="slide-label">The Shift</div>
+        <h2>A new interface for using computers just emerged — and almost no company can touch it yet.</h2>
+
+        <p class="lead">
+          For forty years we operated computers through buttons someone else designed: menus, forms, dashboards. You adapted to the software. In 2025 that flipped. With agentic AI — Claude Code and its kind — you describe the outcome in plain language and the machine builds the path. The software adapts to you.
+        </p>
+
+        <div class="two-col">
+          <div class="card">
+            <h4>The old interface</h4>
+            <p>You learn the tool. You click through someone else's screens. Anything it doesn't already do, you can't do — you wait for a vendor, a developer, a quarter.</p>
+          </div>
+          <div class="card">
+            <h4>The new interface</h4>
+            <p>You state the result. An agent reads your files, touches your real systems, and assembles the workflow on the spot. The ceiling moves from "what's in the menu" to "what you can describe."</p>
+          </div>
+        </div>
+
+        <div class="highlight-box">
+          <p>This is the biggest change in how we use computers since the graphical interface. The technology is here today — but for the average 30-person company it's a YouTube demo, not something running in their business.</p>
+        </div>
+      </div>
+
+      <!-- SLIDE 3 — THE PROBLEM -->
       <div class="slide">
         <div class="slide-label">The Problem</div>
-        <h2>Belonging is the one human need the social stack stopped serving.</h2>
+        <h2>The new interface is real — but it's trapped on one developer's laptop.</h2>
 
         <p class="lead">
-          61% of adults under 25 report serious loneliness, and the U.S. Surgeon General declared it a public-health emergency in 2023. Yet the products built to "connect" us optimize for attention or for matching — never for a small group that knows your name and expects you back next week.
-        </p>
-
-        <div class="two-col">
-          <div class="card">
-            <h4>What today's social stack delivers</h4>
-            <ul>
-              <li><strong>Reddit / X:</strong> content + outrage</li>
-              <li><strong>Discord:</strong> chat for gamers + work</li>
-              <li><strong>Tinder / Bumble:</strong> a match, then churn</li>
-              <li><strong>Meetup:</strong> dormant IRL stack</li>
-            </ul>
-          </div>
-          <div class="card">
-            <h4>What it doesn't deliver</h4>
-            <p>A persistent small group of 8–40 people who share a specific interest, recognise each other, and show up again. The thing every human had before the internet.</p>
-          </div>
-        </div>
-
-        <p class="source">Source: Cigna Loneliness Index 2024; U.S. Surgeon General Advisory, 2023.</p>
-      </div>
-
-      <!-- SLIDE 3 — SOLUTION -->
-      <div class="slide">
-        <div class="slide-label">The Solution</div>
-        <h2>The tribe is the unit. Not the feed.</h2>
-
-        <p class="lead">
-          Online Tribes lets anyone create or join a small interest-based tribe (8–40 people) and gives the tribe the tools to stay alive: shared posts, group chat, AI-assisted onboarding, and a paid leadership path for the owners who hold a community together.
+          A single skilled operator with an AI agent can now automate almost any repetitive office task. The capability exists. What's missing is the bridge between that operator and the team that actually does the work.
         </p>
 
         <div class="three-col">
           <div class="card">
-            <h4>Small by design</h4>
-            <p>Tribes cap and split as they grow. Belonging breaks above ~40 members; we honour that.</p>
+            <h4>It lives locally</h4>
+            <p>The real power needs real access — your files, your tools, your stack. That runs on a machine, behind a login. The team never sees it.</p>
           </div>
           <div class="card">
-            <h4>Leader-led, not feed-led</h4>
-            <p>Owners set rules, run rituals, and earn from engagement. Incentive aligned with retention, not impressions.</p>
+            <h4>It dies with the builder</h4>
+            <p>The automation lives in one person's head and terminal. They leave, get busy, or go on holiday — and the workflow stops.</p>
           </div>
           <div class="card">
-            <h4>AI as introducer</h4>
-            <p>AI matches users to tribes by emotional context, not keywords. Not an AI friend — an AI that finds you a real one.</p>
+            <h4>The team can't run it</h4>
+            <p>Marek in the office can't open a terminal. If it isn't a button he can press, with instructions he can follow, it may as well not exist.</p>
           </div>
         </div>
+
+        <p class="source">Only 8.7% of Polish firms use AI (Eurostat 2024, second-lowest in the EU) — not for lack of tools, but for lack of a way to put them in non-technical hands.</p>
       </div>
 
-      <!-- SLIDE 4 — WHAT WE BUILT -->
+      <!-- SLIDE 4 — THE METHOD -->
       <div class="slide">
-        <div class="slide-label">What We Built</div>
-        <h2>An 18-month, two-founder product — and the instrumentation to know exactly what it does.</h2>
+        <div class="slide-label">The Method</div>
+        <h2>Build on the machine. Ship to the team. Hand them the guide.</h2>
 
         <p class="lead">
-          Most pre-seed social apps ship a feed and guess. We shipped a feed, a tribe primitive, an AI introducer, a paywall, and the analytics spine to see which screen kills which cohort. The instrumentation is the asset: it's how we'll find product–market fit fast once we point acquisition at the right user.
+          Omnia is an AI-automation agency with one unfair way of working. We don't sell slideware or a chatbot bolted onto your website. We build the real thing where it has real power — then we make it usable by everyone who isn't us.
         </p>
 
-        <div class="two-col">
+        <div class="three-col">
           <div class="card">
-            <h4>Shipped to production</h4>
-            <ul>
-              <li>Tribe creation, discovery, and join flow</li>
-              <li>In-tribe feed (posts, comments, reactions)</li>
-              <li>1:1 and group chat</li>
-              <li>Welcome tribes (onboarding cohorts)</li>
-              <li>AI introducer (matching)</li>
-              <li>Premium paywall + Stripe (live in code)</li>
-              <li>Push, deep linking, referrals</li>
-            </ul>
+            <div class="step-num">1</div>
+            <h4>Build locally</h4>
+            <p>We build automations on the machine with Claude Code — full access to your files, tools, and systems. This is where agents are actually powerful, not a sandboxed toy.</p>
           </div>
           <div class="card">
-            <h4>The instrumentation engine</h4>
-            <ul>
-              <li>193 analytics events across the whole app</li>
-              <li>84+ pre-built BigQuery queries (funnel, cohorts, per-feature)</li>
-              <li>Weekly loop: pull data → find the leak → ship the fix</li>
-              <li>iOS &amp; Android from one Flutter codebase</li>
-            </ul>
-          </div>
-        </div>
-        <p class="source">Note: iOS is live but still nascent — to date the install base is ~99% Android (see next slide).</p>
-      </div>
-
-      <!-- SLIDE 5 — HONEST TRACTION -->
-      <div class="slide">
-        <div class="slide-label">Traction — Read It Straight</div>
-        <h2>What's real: organic demand and a machine that ships. What isn't yet: our ICP.</h2>
-
-        <div class="stats-row">
-          <div class="stat-card">
-            <div class="stat-number">~1,500</div>
-            <div class="stat-label">Organic new users / mo</div>
-            <div class="stat-sub">Apr–May 2026 · ~$0 spend</div>
-          </div>
-          <div class="stat-card">
-            <div class="stat-number">23.75%</div>
-            <div class="stat-label">Best organic cohort · W1</div>
-            <div class="stat-sub">wk 2026-04-26 · n=619</div>
-          </div>
-          <div class="stat-card">
-            <div class="stat-number">~9%</div>
-            <div class="stat-label">Median W1 retention</div>
-            <div class="stat-sub">12-cohort median</div>
-          </div>
-          <div class="stat-card">
-            <div class="stat-number">~55K</div>
-            <div class="stat-label">Installs to date</div>
-            <div class="stat-sub">since Nov 2025</div>
-          </div>
-        </div>
-
-        <p>
-          After a small Google paid-install test in March (which we switched off), acquisition is now almost entirely organic and direct — roughly 1,500 new users a month at near-zero CAC. That's genuine pull: people keep arriving, and the best organic weekly cohort came back at <strong>23.75% W1</strong>. Belonging retains when the room is right.
-        </p>
-
-        <div class="honest-box">
-          <div class="label">What we won't pretend</div>
-          <p>Most of those users are not our ICP. The base is ~99% Android, and the US — our target market — is ~3% of installs and our <strong>weakest-retaining segment</strong>. The headline isn't "we have traction." It's "we have a working product, real organic pull, and the instrumentation to prove our ICP. We have not proven it yet." Every figure here is queryable in our BigQuery; ask and we'll run it live.</p>
-        </div>
-        <p class="source">Source: GA4 BigQuery export, project online-tribes-pl-4b26b, windows ending 2026-05-30.</p>
-      </div>
-
-      <!-- SLIDE 6 — THE HARD TRUTH -->
-      <div class="slide">
-        <div class="slide-label">The Hard Truth</div>
-        <h2>Our ICP is our weakest segment — and we know exactly why.</h2>
-
-        <table>
-          <thead>
-            <tr><th>Segment (90d)</th><th style="text-align:right">Users</th><th style="text-align:right">W1 retention</th><th style="text-align:right">Avg active days</th></tr>
-          </thead>
-          <tbody>
-            <tr class="row-bad"><td>United States (our ICP)</td><td class="num">579</td><td class="num">3.85%</td><td class="num">1.25</td></tr>
-            <tr><td>Other Western</td><td class="num">315</td><td class="num">6.35%</td><td class="num">—</td></tr>
-            <tr class="row-highlight"><td>Rest of world (where volume landed)</td><td class="num">11,872</td><td class="num">9.47%</td><td class="num">2.1</td></tr>
-          </tbody>
-        </table>
-
-        <p>
-          Broad, cheap install buying (and organic spillover) brought us volume from markets we don't serve — and our ICP arrives into tribes with almost no one like them in the room. <strong>Belonging needs density. We never built ICP density, so US users find no one to belong to and churn on day one.</strong> That's a cold-start problem, not proof the ICP doesn't want this.
-        </p>
-
-        <h3>Two instrumentation gaps we're fixing first (both P0)</h3>
-        <div class="two-col">
-          <div class="card">
-            <h4>Tribe-join is half-dark</h4>
-            <p>141 users viewed a tribe in 30d, but <code>tribe_join_completed</code> fired for only 6 — the event is under-instrumented across join paths. We can't yet see our most important action clearly.</p>
+            <div class="step-num">2</div>
+            <h4>Share to the team on the web</h4>
+            <p>Each automation becomes a button your whole team can press from the browser. No terminal, no setup — the power of the local build, delivered as a web app.</p>
           </div>
           <div class="card">
-            <h4>AI introducer opens, then silence</h4>
-            <p>165 users opened the AI introducer in 30d; 0 downstream messages are recorded. Either users bounce or the event isn't wired. We will know within two weeks.</p>
-          </div>
-        </div>
-      </div>
-
-      <!-- SLIDE 7 — WHY WE STILL BELIEVE -->
-      <div class="slide">
-        <div class="slide-label">Why We Still Believe</div>
-        <h2>When the room is right, belonging retains. We've seen it.</h2>
-
-        <div class="two-col">
-          <div class="card">
-            <h4>Demand is real</h4>
-            <p>~1,500 people a month install with no marketing engine running. The loneliness pull is not hypothetical — it shows up in our funnel every week, for free.</p>
-          </div>
-          <div class="card">
-            <h4>Retention is achievable</h4>
-            <p>Our best organic cohort returned at 23.75% W1 — competitive with strong consumer social — proving the product can hold people when density forms.</p>
+            <div class="step-num">3</div>
+            <h4>Hand over the guide</h4>
+            <p>Every workflow ships with an onboarding guide written for the person who'll use it. Adoption, not abandonment — it survives the builder leaving the room.</p>
           </div>
         </div>
 
         <div class="highlight-box">
-          <p>The gap between our 3.85% ICP retention and our 23.75% best cohort is not a wall — it's the exact distance this raise closes: <strong>concentrate one dense ICP community, fix activation, and measure whether US retention moves.</strong></p>
+          <p>Local gives the <strong>power</strong>. Web gives the <strong>distribution</strong>. The guide gives the <strong>adoption</strong>. Most of the market does at most one of the three.</p>
         </div>
       </div>
 
-      <!-- SLIDE 8 — MARKET -->
+      <!-- SLIDE 5 — WHY LOCAL-FIRST -->
       <div class="slide">
-        <div class="slide-label">Market</div>
-        <h2>Belonging is the only social vertical where retention compounds with depth.</h2>
-
-        <div class="three-col">
-          <div class="card" style="text-align:center">
-            <h4>Attention (Meta, X, TikTok)</h4>
-            <p>$700B+ market. Feed-driven; depth degrades engagement. Saturated.</p>
-          </div>
-          <div class="card" style="text-align:center">
-            <h4>Matching (Tinder, Bumble)</h4>
-            <p>$8B+ market. Retention collapses post-match by design. Margins under pressure.</p>
-          </div>
-          <div class="card" style="text-align:center">
-            <h4>Belonging (open)</h4>
-            <p>The only social primitive where deeper relationships compound usage. No category leader.</p>
-          </div>
-        </div>
-
-        <h3 style="margin-top:24px">Comparables — proof the category is fundable</h3>
-        <ul>
-          <li><strong>Discord</strong> — $15B valuation; group-chat for synchronous use (gaming, work).</li>
-          <li><strong>Geneva</strong> — raised $26M; group-chat without the tribe-leader incentive layer.</li>
-          <li><strong>Mighty Networks</strong> — $100M+ raised; creator-led communities, not interest-based small groups.</li>
-          <li><strong>Skool</strong> — profitable; courses-led community, not horizontal belonging.</li>
-        </ul>
-        <div class="highlight-box">
-          <p>None build the small-group, horizontal belonging primitive for individuals. <strong>That's the opening — if someone can crack ICP density.</strong></p>
-        </div>
-      </div>
-
-      <!-- SLIDE 9 — THE BET -->
-      <div class="slide">
-        <div class="slide-label">The Bet</div>
-        <h2>$1.5M to prove one thing: that our ICP retains when we build density for it.</h2>
+        <div class="slide-label">Why Local-First Wins</div>
+        <h2>The cloud demos are toys. The real value is on the machine.</h2>
 
         <p class="lead">
-          This is a retention-proof raise, not a growth-at-all-costs raise. We stop buying cheap global volume and instead manufacture one dense, ICP-specific community — then let our instrumentation tell us, honestly, whether US retention moves off 3.85%.
-        </p>
-
-        <h3>30 / 60 / 90</h3>
-        <div class="three-col">
-          <div class="card">
-            <h4>Days 0–30</h4>
-            <ul>
-              <li>Fix join + AI + activation instrumentation (P0)</li>
-              <li>Pick one ICP wedge (interest × US metro / campus)</li>
-              <li>Seed it to real density by hand</li>
-            </ul>
-          </div>
-          <div class="card">
-            <h4>Days 31–60</h4>
-            <ul>
-              <li>Targeted ICP acquisition into the seeded wedge</li>
-              <li>Tribe-owner incentive ramp for that wedge</li>
-              <li>Watch ICP W1 / W4 curves, not vanity installs</li>
-            </ul>
-          </div>
-          <div class="card">
-            <h4>Days 61–90</h4>
-            <ul>
-              <li>Iterate activation against the cohort curve</li>
-              <li>Decide: does ICP retention clear the bar?</li>
-              <li>If yes → repeatable wedge playbook for Seed</li>
-            </ul>
-          </div>
-        </div>
-      </div>
-
-      <!-- SLIDE 10 — BUSINESS MODEL -->
-      <div class="slide">
-        <div class="slide-label">Business Model</div>
-        <h2>Monetization is a hypothesis, not a result — and we'll say so.</h2>
-
-        <p class="lead">
-          The rails are built and live in code: a consumer Premium subscription and a tribe-owner take-rate. To date that's produced just <strong>3 purchases</strong>. We are not pitching revenue. We are pitching retention — revenue is the next question, not this one.
+          Everyone else starts in the browser, where the agent can only do what a sandbox allows. We start on the machine, where the agent can read the actual spreadsheet, open the actual TMS, and touch the actual invoice folder — then we project that power out to the web.
         </p>
 
         <div class="two-col">
           <div class="card">
-            <h4>B2C — Premium (live in code)</h4>
+            <h4>Power: real access, real work</h4>
             <ul>
-              <li>Unlimited joins, ad-free, premium matching</li>
-              <li>Pricing TBD post-ICP (Western pricing power, not global)</li>
-              <li>Conversion instrumentation being wired this sprint</li>
+              <li>Reads and writes your real files and systems</li>
+              <li>Runs the full task end-to-end, not a canned reply</li>
+              <li>Builds against your stack as it actually is, mess and all</li>
             </ul>
           </div>
           <div class="card">
-            <h4>Tribe-owner economics (next)</h4>
+            <h4>Privacy: data stays where it should</h4>
             <ul>
-              <li>Owners earn from engaged members; platform fee 15–20%</li>
-              <li>Turns best users into aligned, paid distribution</li>
-              <li>Activates only once ICP retention is real</li>
+              <li>Sensitive documents never have to leave the premises</li>
+              <li>A real answer to the first SMB question: "RODO?"</li>
+              <li>The control story enterprises and accountants trust</li>
             </ul>
           </div>
         </div>
-        <div class="honest-box">
-          <div class="label">Why we lead with retention, not revenue</div>
-          <p>For belonging, retention precedes monetization: a community you don't leave is one you'll eventually pay for. Selling subscriptions into 3.85% retention would just buy churn. Fix the room first.</p>
+
+        <div class="highlight-box">
+          <p>"Build local, share web, guide the team" isn't a slogan — it's the order of operations that turns a developer's superpower into something a 35-person construction firm runs every day.</p>
+        </div>
+      </div>
+
+      <!-- SLIDE 6 — THE MOAT -->
+      <div class="slide">
+        <div class="slide-label">Why The Method Is The Moat</div>
+        <h2>Operator-built and compounding — not a content shop with bolt-on delivery.</h2>
+
+        <p class="lead">
+          The loudest voices in AI automation are influencers selling strategy decks. We're the opposite: hands on the keyboard, shipping working software. And because every engagement is built on the same method, the work compounds instead of starting from zero.
+        </p>
+
+        <div class="three-col">
+          <div class="card">
+            <h4>Operator, not influencer</h4>
+            <p>We show the build, not a talking head. The deliverable is a running automation your team uses Monday morning.</p>
+          </div>
+          <div class="card">
+            <h4>A growing skill library</h4>
+            <p>Each automation we build is a reusable skill. The second client in a vertical gets the first one's learnings for free — speed and margin both climb.</p>
+          </div>
+          <div class="card">
+            <h4>The guide makes it stick</h4>
+            <p>Most automation projects become shelfware. Ours ship with onboarding, so they're still running — and renewing — six months later.</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- SLIDE 7 — WHAT WE'VE BUILT -->
+      <div class="slide">
+        <div class="slide-label">Proof We Dogfood It</div>
+        <h2>We run our own agency on the exact method we sell.</h2>
+
+        <p class="lead">
+          Omnia's own operation — finding clients, enriching them, and running outreach — is built as local Claude Code automations, shared as commands, packaged as a team environment. We don't pitch the method in theory; it's how the company runs today.
+        </p>
+
+        <div class="two-col">
+          <div class="card">
+            <h4>The live working environment</h4>
+            <ul>
+              <li>Lead discovery → scoring → pipeline, automated</li>
+              <li>Contact enrichment + multichannel outreach</li>
+              <li>One-command workflows (<code>/find-leads</code>, <code>/engage</code>, <code>/outreach-all</code>)</li>
+              <li>Packaged VS Code environment + onboarding extension</li>
+            </ul>
+          </div>
+          <div class="card">
+            <h4>The shareable layer</h4>
+            <ul>
+              <li>Reusable skill packs, version-locked for the team</li>
+              <li>Server + cloud functions to run builds beyond one laptop</li>
+              <li>Onboarding guide so a new operator is productive day one</li>
+              <li>The same local → web → guide loop, on ourselves</li>
+            </ul>
+          </div>
+        </div>
+        <p class="source">If we couldn't make this method work for our own business, we'd have no business selling it.</p>
+      </div>
+
+      <!-- SLIDE 8 — WHO IT'S FOR -->
+      <div class="slide">
+        <div class="slide-label">Who It's For</div>
+        <h2>Polish SMBs, 10–250 people, drowning in repetitive operational work.</h2>
+
+        <p class="lead">
+          Our buyer is the owner-operator — Marek, 47, runs a 35-person firm, laptop on Windows, accountant emailing him spreadsheets. He doesn't want an "AI strategy." He wants the one process that wastes his week to stop wasting it.
+        </p>
+
+        <div class="three-col">
+          <div class="card">
+            <h4>Where the pain is</h4>
+            <p>Construction, professional services, logistics, healthcare admin, property management — five verticals we're validating in parallel, letting the market pick the wedge.</p>
+          </div>
+          <div class="card">
+            <h4>The regulatory tailwind</h4>
+            <p>KSeF mandatory for VAT entities (2026), PARP grants up to 75% co-funding, AI Act in force. Deadlines that turn "someday" into "this quarter."</p>
+          </div>
+          <div class="card">
+            <h4>The adoption gap</h4>
+            <p>Lowest-in-EU AI uptake means the competition can't do this either. Whoever ships one working agent first gets a year of advantage.</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- SLIDE 9 — THE OFFER -->
+      <div class="slide">
+        <div class="slide-label">How We Engage</div>
+        <h2>One painful process, automated in four weeks — then rolled out to the team.</h2>
+
+        <div style="margin: 20px 0">
+          <div class="funds-bar">
+            <div style="width: 22%; background: var(--primary-dark)">Audit</div>
+            <div style="width: 30%; background: var(--primary)">Build (local)</div>
+            <div style="width: 26%; background: var(--primary-light)">Rollout + Guide (web)</div>
+            <div style="width: 22%; background: #6f97ff">Retainer</div>
+          </div>
+        </div>
+
+        <div class="two-col">
+          <div class="card">
+            <h4>Audit → First automation (4 weeks)</h4>
+            <ul>
+              <li>Find the one process that hurts most</li>
+              <li>Build it locally against your real systems</li>
+              <li>Ship it to the team as a web button + guide</li>
+            </ul>
+          </div>
+          <div class="card">
+            <h4>Rollout → Retainer</h4>
+            <ul>
+              <li>Expand into the next workflows, reusing the skill library</li>
+              <li>Maintain, monitor, and onboard new staff</li>
+              <li>Toward a "company brain" your whole team can query</li>
+            </ul>
+          </div>
+        </div>
+
+        <div class="highlight-box">
+          <p><strong>Risk reversal:</strong> first working automation in 4 weeks and measurable ROI in 90 days — or your money back. We can offer that because the method makes delivery predictable.</p>
+        </div>
+      </div>
+
+      <!-- SLIDE 10 — WHY NOW -->
+      <div class="slide">
+        <div class="slide-label">Why Now</div>
+        <h2>The interface shift, the deadlines, and the empty field all line up in 2026.</h2>
+
+        <div class="three-col">
+          <div class="card" style="text-align:center">
+            <h4>The capability arrived</h4>
+            <p>Agentic AI that can do real work on a real machine only became reliable in the last year. The "build local, ship to team" method wasn't possible before it.</p>
+          </div>
+          <div class="card" style="text-align:center">
+            <h4>The deadlines forced it</h4>
+            <p>KSeF and grant windows give SMBs a reason to act this year, not "eventually." Buying behaviour is suddenly time-boxed.</p>
+          </div>
+          <div class="card" style="text-align:center">
+            <h4>The field is empty</h4>
+            <p>Competitors sell strategy decks or website chatbots. Almost no one builds local-first and hands the team a guide. The lane is open.</p>
+          </div>
+        </div>
+
+        <div class="highlight-box">
+          <p>A new interface for computers, a market that can't use it yet, and a deadline that says "now" — that gap is exactly what Omnia closes.</p>
         </div>
       </div>
 
       <!-- SLIDE 11 — TEAM -->
       <div class="slide">
         <div class="slide-label">Team</div>
-        <h2>Two founders, 18 months, a shipped and instrumented product — on $0 outside capital.</h2>
+        <h2>An operator who builds — not an agency that outsources.</h2>
 
         <div class="team-grid">
           <div class="team-card">
             <div class="name">Franek Jablonski</div>
-            <div class="role">Co-founder · CTO</div>
-            <p class="bio">10+ years engineering. Built systems at Visa, led government delivery (Scotland, One Willow). Owns the product + analytics stack.</p>
+            <div class="role">Founder · Operator &amp; Builder</div>
+            <p class="bio">10+ years engineering — systems at Visa, government delivery in Scotland. Builds and ships the automations himself; the hands on the keyboard, not a talking head.</p>
           </div>
           <div class="team-card">
-            <div class="name">Marianna Jablonska</div>
-            <div class="role">Co-founder · Growth &amp; UX</div>
-            <p class="bio">CS + digital marketing. 8+ years bridging product, design, and acquisition. Owns onboarding + retention loops.</p>
-          </div>
-          <div class="team-card">
-            <div class="name">Dominik Mazurkiewicz</div>
-            <div class="role">Senior Mobile Engineer (contract)</div>
-            <p class="bio">Flutter and cross-platform mobile. Core app development.</p>
-          </div>
-          <div class="team-card">
-            <div class="name">Anis Boulaid</div>
-            <div class="role">DevOps Lead (contract)</div>
-            <p class="bio">18+ years cloud and CI/CD. Keeps Firebase + infra honest.</p>
+            <div class="name">The method as a teammate</div>
+            <div class="role">Local → Web → Guide</div>
+            <p class="bio">Claude Code agents, a versioned skill library, and an onboarding layer let one operator deliver at the pace of a small team — and scale by adding skills, not headcount.</p>
           </div>
         </div>
 
         <div class="highlight-box">
-          <p><strong>Post-raise hires:</strong> AI/ML Engineer (matching), full-time Senior Flutter, Community Lead to hand-seed the first ICP wedge. From 2 founders + contractors to a focused full-time core.</p>
+          <p><strong>The bet on the team:</strong> the new interface makes a single skilled operator dramatically more leveraged. Omnia is built to prove that — lean by design, compounding through the skill library, not bloating with billable bodies.</p>
         </div>
       </div>
 
-      <!-- SLIDE 12 — THE ASK -->
-      <div class="slide">
-        <div class="slide-label">The Ask</div>
-        <h2>Raising $1.5M pre-seed. 18 months. One measurable outcome.</h2>
-
-        <p class="lead">
-          We're not asking you to believe the traction numbers — we're asking you to back a built product, a proven build-and-measure loop, and a clear experiment to convert real organic pull into real ICP retention.
-        </p>
-
-        <div style="margin: 20px 0">
-          <div class="funds-bar">
-            <div style="width: 35%; background: var(--primary)">35% Engineering</div>
-            <div style="width: 30%; background: var(--primary-light)">30% ICP Density &amp; Growth</div>
-            <div style="width: 20%; background: #8b5cf6">20% Founders</div>
-            <div style="width: 15%; background: var(--primary-dark)">15% Infra &amp; Legal</div>
-          </div>
-        </div>
-
-        <div class="two-col">
-          <div class="card">
-            <h4>Engineering (35% · $525K)</h4>
-            <ul>
-              <li>Fix join / AI / activation instrumentation</li>
-              <li>AI/ML engineer for the introducer</li>
-              <li>Senior Flutter, full-time</li>
-            </ul>
-          </div>
-          <div class="card">
-            <h4>ICP Density &amp; Growth (30% · $450K)</h4>
-            <ul>
-              <li>Hand-seed one dense ICP wedge</li>
-              <li>Targeted ICP acquisition (not broad UAC)</li>
-              <li>Community Lead + tribe-owner incentives</li>
-            </ul>
-          </div>
-          <div class="card">
-            <h4>Founders (20% · $300K)</h4>
-            <ul>
-              <li>2 founders at survival salary, 18 months</li>
-            </ul>
-          </div>
-          <div class="card">
-            <h4>Infra &amp; Legal (15% · $225K)</h4>
-            <ul>
-              <li>Firebase + AI inference</li>
-              <li>Stripe Connect, GDPR, safety/moderation</li>
-            </ul>
-          </div>
-        </div>
-
-        <div class="highlight-box">
-          <p><strong>The one milestone we'll be judged on at month 18:</strong> a dense ICP community with a flattening retention curve — US W1 moved from 3.85% toward our 23.75% best-case, with a repeatable wedge playbook. Retention proof, not user counts.</p>
-        </div>
-      </div>
-
-      <!-- SLIDE 13 — CLOSE -->
+      <!-- SLIDE 12 — CLOSE / DESIGN PARTNERS -->
       <div class="slide back-cover">
-        <h2>We built the machine and the instruments. Fund us to point them at the right market.</h2>
+        <h2>We're taking on a handful of design partners.</h2>
         <p class="subtitle">
-          $1.5M pre-seed. 18 months. From organic pull to proven ICP retention, in a category no one else is building.
+          Pick your most painful repetitive process. We build the automation on the machine, ship it to your team on the web, and hand you the guide — first version in four weeks. Be one of the first companies actually running the new interface, not watching the demo.
         </p>
 
-        <div class="qr-container">
-          <div class="qr-code">
-            <img src="QR_code.png" alt="QR Code — Download Online Tribes" />
-          </div>
-          <div class="contact-info">
-            <p><strong>Download:</strong> iOS &amp; Android</p>
-            <p><strong>Web:</strong> online-tribes.com</p>
-          </div>
-        </div>
-
-        <div class="contact-email">franek@online-tribes.com</div>
-        <p style="color: var(--text-muted); font-size: 14px; margin: 4px 0">marianna@online-tribes.com</p>
+        <div class="contact-email">franek@omnia-intelligence.com</div>
+        <p style="color: var(--text-muted); font-size: 14px; margin: 4px 0">Design-Partner Program · limited pilot cohort · 2026</p>
         <p style="color: var(--text-muted); font-size: 13px; margin-top: 24px">
-          <strong>Online Tribes</strong> — A self-improving social platform for belonging.
+          <strong>Omnia Intelligence</strong> — Build on the machine. Ship to the team. Hand them the guide.
         </p>
       </div>
     </div>

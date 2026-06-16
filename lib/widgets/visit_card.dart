@@ -33,6 +33,7 @@ class VisitCard extends StatelessWidget {
               _Link(icon: Icons.link, label: 'LinkedIn', url: 'https://www.linkedin.com/in/franek-jablonski/'),
               _Link(icon: Icons.code, label: 'GitHub', url: 'https://github.com/budda24'),
               _Link(icon: Icons.phone_iphone, label: 'OnlineTribes app', url: 'https://onlinetribes.qrplanet.com/j2dfu1'),
+              _Link(icon: Icons.slideshow_outlined, label: 'Pitches', route: '/pitches'),
             ],
           ),
           SizedBox(height: 10),
@@ -44,6 +45,7 @@ class VisitCard extends StatelessWidget {
             links: [
               _Link(icon: Icons.mail_outline, label: 'marianna@online-tribes.com', url: 'marianna@online-tribes.com', email: true),
               _Link(icon: Icons.link, label: 'LinkedIn', url: 'https://www.linkedin.com/in/mariannajablonska/'),
+              _Link(icon: Icons.slideshow_outlined, label: 'Pitches', route: '/pitches'),
             ],
           ),
         ],
@@ -53,10 +55,20 @@ class VisitCard extends StatelessWidget {
 }
 
 class _Link {
-  const _Link({required this.icon, required this.label, required this.url, this.email = false});
+  const _Link({
+    required this.icon,
+    required this.label,
+    this.url,
+    this.route,
+    this.email = false,
+  }) : assert(url != null || route != null, 'a link needs a url or a route');
   final IconData icon;
   final String label;
-  final String url;
+  // External destination (URL) or, for [email], a bare address. Null when this
+  // chip navigates within the app via [route] instead.
+  final String? url;
+  // In-app route to push (e.g. '/pitches') instead of opening an external URL.
+  final String? route;
   // When true, [url] is a bare email address opened via Gmail compose in a new
   // tab (rather than a raw URL), so it works without a default mail app.
   final bool email;
@@ -196,9 +208,11 @@ class _Chips extends StatelessWidget {
           _LinkChip(
             icon: l.icon,
             label: l.label,
-            onTap: l.email
-                ? () => emailAction(context, l.url)
-                : () => openLink(Uri.parse(l.url)),
+            onTap: l.route != null
+                ? () => Navigator.of(context).pushNamed(l.route!)
+                : l.email
+                    ? () => emailAction(context, l.url!)
+                    : () => openLink(Uri.parse(l.url!)),
           ),
       ],
     );

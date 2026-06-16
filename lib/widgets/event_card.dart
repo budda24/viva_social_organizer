@@ -79,13 +79,19 @@ class EventCard extends StatelessWidget {
                             color: AppColors.accent,
                           ),
                           SizedBox(width: 6),
-                          Text(
-                            'Sign in for when & host',
-                            style: TextStyle(
-                              color: AppColors.ink,
-                              fontSize: 10,
-                              letterSpacing: 0.6,
-                              fontWeight: FontWeight.w600,
+                          // Flexible + center wrap so the label shrinks to the
+                          // card width instead of clipping at the edge — on
+                          // narrow 2-column mobile cards it wraps to two lines.
+                          Flexible(
+                            child: Text(
+                              'Sign in for when & host',
+                              textAlign: TextAlign.center,
+                              style: TextStyle(
+                                color: AppColors.ink,
+                                fontSize: 10,
+                                letterSpacing: 0.6,
+                                fontWeight: FontWeight.w600,
+                              ),
                             ),
                           ),
                         ],

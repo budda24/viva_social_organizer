@@ -1,3 +1,4 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 
 import '../data/sample_data.dart';
@@ -19,7 +20,7 @@ class LandingScreen extends StatelessWidget {
     final width = MediaQuery.sizeOf(context).width;
     final isCompact = width < 760;
     return AppScaffold(
-      topBarTrailing: const StatusPill(label: '74 / 100 tribers'),
+      topBarTrailing: const _TriberCountPill(),
       child: Padding(
         padding: EdgeInsets.symmetric(horizontal: isCompact ? 20 : 40),
         child: Column(
@@ -41,6 +42,26 @@ class LandingScreen extends StatelessWidget {
           ],
         ),
       ),
+    );
+  }
+}
+
+// Live member count for the top bar. Streams public/stats — a world-readable
+// aggregate doc maintained by the onUserWrite Cloud Function — so it works on
+// the signed-out landing page (the users/ directory itself is sign-in gated).
+// Renders nothing until the doc loads rather than flashing a stale number.
+class _TriberCountPill extends StatelessWidget {
+  const _TriberCountPill();
+
+  @override
+  Widget build(BuildContext context) {
+    return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+      stream: FirebaseFirestore.instance.doc('public/stats').snapshots(),
+      builder: (context, snap) {
+        final count = (snap.data?.data()?['memberCount'] as num?)?.toInt();
+        if (count == null) return const SizedBox.shrink();
+        return StatusPill(label: count == 1 ? '1 triber' : '$count tribers');
+      },
     );
   }
 }

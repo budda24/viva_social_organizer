@@ -1,0 +1,736 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Online Tribes — Pitch Deck v8 ($500K Pre-Seed)</title>
+    <style>
+      @import url("https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap");
+
+      :root {
+        --primary: #7c3aed;
+        --primary-light: #a78bfa;
+        --primary-dark: #5b21b6;
+        --primary-bg: #f5f0ff;
+        --text-dark: #111827;
+        --text: #374151;
+        --text-muted: #6b7280;
+        --bg: #ffffff;
+        --bg-subtle: #fafafa;
+        --border: rgba(124, 58, 237, 0.12);
+        --border-strong: rgba(124, 58, 237, 0.2);
+        --shadow-sm: 0 1px 3px rgba(124, 58, 237, 0.08);
+        --shadow-md: 0 4px 12px rgba(124, 58, 237, 0.12);
+        --radius-sm: 8px;
+        --radius-md: 12px;
+        --radius-lg: 16px;
+        --red: #dc2626;
+        --green: #16a34a;
+        --amber: #d97706;
+      }
+
+      @page { size: A4; margin: 14mm 16mm; }
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+
+      body {
+        font-family: "Inter", -apple-system, BlinkMacSystemFont, sans-serif;
+        background: var(--bg);
+        color: var(--text);
+        line-height: 1.6;
+        font-size: 15px;
+        -webkit-print-color-adjust: exact;
+        print-color-adjust: exact;
+        -webkit-font-smoothing: antialiased;
+      }
+
+      .container { max-width: 860px; margin: 0 auto; padding: 40px 36px; }
+
+      .slide { page-break-after: always; break-after: page; padding: 40px 0; }
+      .slide:last-child { page-break-after: avoid; break-after: avoid; }
+
+      .slide-label {
+        font-size: 11px;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 2.5px;
+        color: var(--primary);
+        margin-bottom: 16px;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+      .slide-label::after { content: ""; flex: 1; height: 2px; background: var(--border-strong); }
+
+      .slide-title, h2 {
+        font-size: 30px;
+        font-weight: 800;
+        color: var(--text-dark);
+        line-height: 1.25;
+        letter-spacing: -0.025em;
+        margin-bottom: 28px;
+      }
+
+      h3 { font-size: 18px; font-weight: 700; color: var(--text-dark); margin: 20px 0 12px; }
+
+      p { margin-bottom: 16px; font-size: 16px; line-height: 1.65; color: var(--text); }
+
+      .lead { font-size: 19px; color: var(--text-dark); line-height: 1.55; font-weight: 500; margin-bottom: 24px; }
+
+      .source { font-size: 12px; color: var(--text-muted); font-style: italic; margin-top: 8px; }
+
+      /* Cover */
+      .cover { text-align: center; padding-top: 80px; }
+      .cover .logo { width: 80px; height: 80px; border-radius: var(--radius-md); object-fit: contain; margin-bottom: 20px; }
+      .cover h1 { font-size: 44px; font-weight: 900; color: var(--text-dark); letter-spacing: -0.03em; margin-bottom: 8px; }
+      .cover .tagline { font-size: 20px; color: var(--primary); font-weight: 600; margin-bottom: 12px; max-width: 640px; margin-left: auto; margin-right: auto; }
+      .cover .sub { font-size: 15px; color: var(--text-muted); margin-bottom: 32px; }
+      .cover .badge {
+        display: inline-block;
+        background: var(--primary);
+        color: white;
+        padding: 12px 28px;
+        border-radius: 8px;
+        font-size: 15px;
+        font-weight: 700;
+        letter-spacing: 0.02em;
+      }
+
+      /* Big statement */
+      .big-statement {
+        font-size: 20px;
+        font-weight: 600;
+        color: var(--text-dark);
+        line-height: 1.5;
+        letter-spacing: -0.01em;
+        margin: 18px 0 22px;
+        text-align: left;
+      }
+      .big-statement .accent { color: var(--primary); font-weight: 700; }
+
+      .story-quote {
+        font-size: 20px;
+        font-weight: 600;
+        color: var(--text-dark);
+        line-height: 1.45;
+        border-left: 3px solid var(--primary);
+        padding: 4px 0 4px 22px;
+        margin: 20px 0;
+      }
+
+      /* Highlight */
+      .highlight-box {
+        background: var(--primary-bg);
+        border-left: 4px solid var(--primary);
+        border-radius: var(--radius-sm);
+        padding: 18px 22px;
+        margin: 20px 0;
+        page-break-inside: avoid;
+      }
+      .highlight-box p { margin: 0; color: var(--text-dark); font-size: 15px; font-weight: 500; line-height: 1.6; }
+
+      .honest-box {
+        background: #fff7ed;
+        border-left: 4px solid var(--amber);
+        border-radius: var(--radius-sm);
+        padding: 18px 22px;
+        margin: 20px 0;
+        page-break-inside: avoid;
+      }
+      .honest-box p { margin: 0; color: var(--text-dark); font-size: 15px; font-weight: 500; line-height: 1.6; }
+      .honest-box .label { font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: 1.5px; color: var(--amber); margin-bottom: 6px; }
+
+      /* Stats */
+      .stats-row { display: flex; gap: 16px; margin: 24px 0; flex-wrap: wrap; }
+      .stat-card {
+        background: white;
+        border: 1px solid var(--border-strong);
+        border-radius: var(--radius-md);
+        padding: 20px 24px;
+        text-align: center;
+        flex: 1;
+        min-width: 110px;
+        page-break-inside: avoid;
+      }
+      .stat-number { font-size: 36px; font-weight: 900; color: var(--primary); line-height: 1; letter-spacing: -0.02em; margin-bottom: 6px; }
+      .stat-label { font-size: 12px; color: var(--text-muted); font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; }
+      .stat-sub { font-size: 11px; color: var(--text-muted); margin-top: 4px; }
+
+      /* Lists */
+      ul, ol { margin: 12px 0; padding-left: 22px; }
+      li { margin: 8px 0; font-size: 15px; line-height: 1.55; color: var(--text); }
+      li::marker { color: var(--primary); font-weight: 700; }
+      strong { color: var(--text-dark); font-weight: 700; }
+      a { color: #2563eb; text-decoration: underline; text-underline-offset: 2px; font-weight: 600; }
+      a:hover { color: #1d4ed8; }
+
+      /* Table */
+      table {
+        width: 100%;
+        border-collapse: separate;
+        border-spacing: 0;
+        margin: 20px 0;
+        font-size: 14px;
+        border-radius: var(--radius-md);
+        overflow: hidden;
+        border: 1px solid var(--border-strong);
+      }
+      th, td { padding: 12px 16px; text-align: left; border-bottom: 1px solid var(--border); }
+      th { background: var(--bg-subtle); font-weight: 700; color: var(--text-dark); font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px; }
+      tr:last-child td { border-bottom: none; }
+      td.num { text-align: right; font-variant-numeric: tabular-nums; font-weight: 600; color: var(--text-dark); }
+      .row-highlight { background: var(--primary-bg); }
+      .row-highlight td { color: var(--text-dark); font-weight: 700; }
+      .row-bad td { color: var(--red); font-weight: 700; }
+
+      /* Cards */
+      .card {
+        background: white;
+        border: 1px solid var(--border-strong);
+        border-radius: var(--radius-md);
+        padding: 18px 20px;
+        margin: 10px 0;
+        page-break-inside: avoid;
+      }
+      .card h4 { font-size: 14px; font-weight: 700; color: var(--primary); margin: 0 0 8px; }
+      .card p { margin-bottom: 6px; font-size: 14px; }
+      .card ul { margin: 4px 0 0; }
+      .card li { font-size: 14px; margin: 4px 0; }
+
+      .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin: 16px 0; }
+      .three-col { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; margin: 16px 0; }
+
+      /* Team */
+      .team-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin: 20px 0; }
+      .team-card {
+        background: white;
+        border: 1px solid var(--border-strong);
+        border-radius: var(--radius-md);
+        padding: 16px 18px;
+        page-break-inside: avoid;
+      }
+      .team-card .name { font-size: 15px; font-weight: 700; color: var(--text-dark); margin-bottom: 2px; }
+      .team-card .role { font-size: 12px; font-weight: 600; color: var(--primary); margin-bottom: 6px; }
+      .team-card .bio { font-size: 13px; color: var(--text-muted); line-height: 1.45; margin: 0; }
+
+      /* CTA */
+      .back-cover { text-align: center; padding-top: 60px; }
+      .back-cover h2 { color: var(--primary); font-size: 32px; margin-bottom: 12px; }
+      .back-cover .subtitle { font-size: 18px; color: var(--text); margin-bottom: 32px; }
+
+      .qr-container { display: flex; align-items: center; justify-content: center; gap: 40px; margin: 28px 0; flex-wrap: wrap; }
+      .qr-code { width: 150px; height: 174px; background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 8px; }
+      .qr-code img { width: 100%; height: 100%; object-fit: contain; }
+      .contact-info { text-align: left; }
+      .contact-info p { margin: 10px 0; font-size: 16px; }
+      .contact-email { font-size: 20px; font-weight: 700; color: var(--primary); margin: 16px 0; }
+
+      /* Use of funds bar */
+      .funds-bar { display: flex; border-radius: var(--radius-md); overflow: hidden; margin: 20px 0 24px; height: 40px; font-size: 12px; font-weight: 700; color: white; }
+      .funds-bar > div { display: flex; align-items: center; justify-content: center; padding: 0 8px; white-space: nowrap; }
+
+      /* Cover metric strip */
+      .metric-strip { display: flex; justify-content: center; flex-wrap: wrap; gap: 14px 30px; margin: 4px 0 26px; }
+      .metric-strip > div { display: flex; flex-direction: column; align-items: center; }
+      .metric-strip .m-num { font-size: 26px; font-weight: 900; color: var(--primary); line-height: 1; letter-spacing: -0.02em; }
+      .metric-strip .m-lbl { font-size: 10.5px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.6px; margin-top: 5px; }
+
+      /* Competition 2x2 matrix */
+      .matrix-cap { text-align: center; font-size: 12px; font-weight: 700; color: var(--primary); text-transform: uppercase; letter-spacing: 1px; margin: 4px 0 10px; }
+      .matrix { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin: 8px 0; }
+      .matrix .cell { border: 1px solid var(--border-strong); border-radius: var(--radius-md); padding: 16px 18px; background: white; page-break-inside: avoid; }
+      .matrix .cell .q { font-size: 11px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 8px; }
+      .matrix .cell .players { font-size: 13.5px; color: var(--text); line-height: 1.5; margin: 0; }
+      .matrix .cell.win { border: 2px solid var(--primary); background: var(--primary-bg); }
+      .matrix .cell.win .q { color: var(--primary); }
+      .matrix .cell.win .players { font-weight: 800; color: var(--primary-dark); font-size: 15px; }
+
+      /* Funnel */
+      .funnel { margin: 18px 0; }
+      .funnel-row { display: flex; align-items: center; gap: 14px; margin: 8px 0; }
+      .funnel-bar { height: 38px; border-radius: var(--radius-sm); display: flex; align-items: center; padding: 0 14px; color: white; font-weight: 700; font-size: 14px; white-space: nowrap; }
+      .funnel-meta { font-size: 13px; color: var(--text-muted); }
+      .funnel-meta strong { color: var(--text-dark); }
+
+      @media (max-width: 640px) {
+        .two-col, .three-col, .team-grid, .matrix { grid-template-columns: 1fr; }
+        .stats-row { flex-direction: column; }
+        .cover h1 { font-size: 32px; }
+        .slide-title, h2 { font-size: 24px; }
+        .big-statement { font-size: 20px; }
+        .story-quote { font-size: 18px; }
+      }
+
+      @media print {
+        @page { size: A4; margin: 13mm 14mm; }
+        body { font-size: 13px; }
+        .container { padding: 0; max-width: none; }
+        .slide {
+          min-height: 0;
+          padding: 10px 0;
+          margin: 0;
+          display: block;
+          page-break-after: auto;
+          break-after: auto;
+        }
+        .cover { padding-top: 0; }
+        .back-cover { padding-top: 16px; }
+        .slide-label, h2, h3 { page-break-after: avoid; }
+        .cover h1 { font-size: 32px; }
+        .slide-title, h2 { font-size: 22px; margin-bottom: 16px; }
+        .big-statement { font-size: 16px; margin: 12px 0 14px; }
+        .story-quote { font-size: 16px; margin: 16px 0; }
+        .stat-number { font-size: 26px; }
+        .stat-card { padding: 14px 16px; }
+        .stats-row { margin: 16px 0; gap: 10px; }
+        p { font-size: 13px; margin-bottom: 10px; }
+        li { font-size: 12px; }
+        .highlight-box, .honest-box { padding: 14px 18px; }
+        .highlight-box p, .honest-box p { font-size: 13px; }
+        .card { padding: 14px 16px; }
+        .card h4 { font-size: 12px; }
+        .card p, .card li { font-size: 12px; }
+        .team-card .name { font-size: 13px; }
+        .team-card .role { font-size: 11px; }
+        .team-card .bio { font-size: 11px; }
+        table { font-size: 11px; }
+        th, td { padding: 8px 10px; }
+        .metric-strip { gap: 10px 22px; margin-bottom: 16px; }
+        .metric-strip .m-num { font-size: 20px; }
+        .matrix .cell { padding: 10px 12px; }
+        .matrix .cell .players { font-size: 12px; }
+        .matrix .cell.win .players { font-size: 13px; }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <!-- SLIDE 1 — COVER -->
+      <div class="slide cover">
+        <img class="logo" src="Logo vector.svg" alt="Online Tribes Logo" />
+        <h1>Online Tribes</h1>
+        <div class="tagline">One right person changes a life.<br />We build the technology that finds them.</div>
+        <div class="sub">Live on iOS &amp; Android · lean international team · 18 months · $0 outside capital</div>
+        <!-- METRICS: verified from GA4 BigQuery export online-tribes-pl-4b26b, Nov 2025–Jun 2026. -->
+        <div class="metric-strip">
+          <div><span class="m-num">~1.6K</span><span class="m-lbl">Organic installs / mo · $0 CAC</span></div>
+          <div><span class="m-num">17.6K</span><span class="m-lbl">Registered users</span></div>
+          <div><span class="m-num">206</span><span class="m-lbl">Countries</span></div>
+          <div><span class="m-num">$0</span><span class="m-lbl">Outside capital</span></div>
+        </div>
+        <div class="badge">Pre-Seed — $500K · June 2026</div>
+      </div>
+
+      <!-- SLIDE 2 — THE PROBLEM -->
+      <div class="slide">
+        <div class="slide-label">The Problem</div>
+        <h2>One person can change a life.</h2>
+
+        <div class="big-statement">The right people make a life rich. <span class="accent">Their absence makes it small — and today, it's left to chance.</span></div>
+
+        <div class="two-col">
+          <div class="card">
+            <h4>How people meet today</h4>
+            <p>Geography, luck, and algorithms built to sell attention — not to build a life.</p>
+          </div>
+          <div class="card">
+            <h4>What the market delivers</h4>
+            <ul>
+              <li><strong>Feeds</strong> — content, not people</li>
+              <li><strong>Communities</strong> — scale without intimacy</li>
+              <li><strong>Dating apps</strong> — a match, then churn</li>
+            </ul>
+          </div>
+        </div>
+
+        <div class="highlight-box">
+          <p>The unmet need: <strong>technology that deliberately puts the right people into a person's life.</strong></p>
+        </div>
+      </div>
+
+      <!-- SLIDE 3 — WHY NOW: THE LAST STRONGHOLD -->
+      <div class="slide">
+        <div class="slide-label">Why Now</div>
+        <h2>Work was the last place adults made friends.<br />AI is ending it.</h2>
+
+        <div class="big-statement">A billion people are about to go looking for their people — <span class="accent">just as the technology to find them has finally arrived.</span></div>
+      </div>
+
+      <!-- SLIDE 4 — THE INSIGHT -->
+      <div class="slide">
+        <div class="slide-label">The Insight</div>
+        <h2>People don't want an AI friend.<br />They want the people AI can find.</h2>
+
+        <div class="story-quote">AI is better at finding the right five people than at being the sixth.</div>
+
+        <div class="three-col">
+          <div class="card">
+            <h4>Tested, not assumed</h4>
+            <p>We ran AI agents inside live communities. The moment users detect AI, engagement collapses. People want people.</p>
+          </div>
+          <div class="card">
+            <h4>AI that reads the room</h4>
+            <p>Our models read the emotional signal in conversation — not keywords, not clicks.</p>
+          </div>
+          <div class="card">
+            <h4>A compounding graph</h4>
+            <p>Every piece of content feeds a connection graph that matches better with every interaction.</p>
+          </div>
+        </div>
+
+        <div class="highlight-box">
+          <p><strong>AI as circle-builder, not feed-ranker</strong> — a direction no attention business can follow without breaking its own model.</p>
+        </div>
+      </div>
+
+      <!-- SLIDE 4 — THE PRODUCT -->
+      <div class="slide">
+        <div class="slide-label">The Product</div>
+        <h2>Tell it what you're chasing.<br />It builds the room.</h2>
+
+        <p class="lead">Live on iOS &amp; Android. 18 months shipped — not a prototype.</p>
+
+        <div class="two-col">
+          <div class="card">
+            <h4>In production</h4>
+            <ul>
+              <li>AI introducer — matches on goals</li>
+              <li>Small tribes, chat, feed, stories</li>
+              <li>Real-time translation on everything</li>
+              <li>Premium + ads built in</li>
+            </ul>
+          </div>
+          <div class="card">
+            <h4>Fully instrumented</h4>
+            <ul>
+              <li>~90 event types · 175+ saved queries</li>
+              <li>Weekly loop: data → leak → fix</li>
+              <li>One codebase, both platforms</li>
+            </ul>
+          </div>
+        </div>
+
+        <div class="highlight-box">
+          <p>Every number in this deck is queryable. <strong>Ask — we'll run it live in the room.</strong></p>
+        </div>
+      </div>
+
+      <!-- SLIDE — THE PROOF -->
+      <div class="slide">
+        <div class="slide-label">The Proof</div>
+        <h2>When the room is right, people stay.</h2>
+
+        <div class="stats-row">
+          <div class="stat-card">
+            <div class="stat-number">26%</div>
+            <div class="stat-label">Best cohort retention</div>
+            <div class="stat-sub">already achieved</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-number">2.5×</div>
+            <div class="stat-label">Lift from one early action</div>
+            <div class="stat-sub">the activation lever</div>
+          </div>
+        </div>
+
+        <div class="big-statement">We've already hit 26%.<br /><span class="accent">The raise makes it the rule, not the exception.</span></div>
+
+        <div class="highlight-box">
+          <p><strong>The fix is known:</strong> AI seeds the room, pods drive the first conversation, the repeat loop keeps it alive.</p>
+        </div>
+        <p class="source">Registered-user cohorts · GA4 BigQuery export.</p>
+      </div>
+
+      <!-- SLIDE 5 — HOW WE OPERATE -->
+      <div class="slide">
+        <div class="slide-label">How We Operate</div>
+        <h2>A senior team, multiplied by AI agents.</h2>
+
+        <div class="big-statement"><span class="accent">$500K here spends like $1.5M.</span></div>
+
+        <div class="two-col">
+          <div class="card">
+            <h4>Agents build &amp; ship</h4>
+            <p>Write, test, release — app and backend.</p>
+          </div>
+          <div class="card">
+            <h4>Agents read the data</h4>
+            <p>BigQuery on demand. They find the leak.</p>
+          </div>
+          <div class="card">
+            <h4>Agents spark rooms</h4>
+            <p>Seed quiet tribes, then step back. Humans stay.</p>
+          </div>
+          <div class="card">
+            <h4>Agents market</h4>
+            <p>Founder voice, machine throughput.</p>
+          </div>
+        </div>
+
+        <div class="highlight-box">
+          <p>The raise buys <strong>growth and product</strong> — not headcount.</p>
+        </div>
+      </div>
+
+      <!-- SLIDE 6 — TRACTION -->
+      <div class="slide">
+        <div class="slide-label">Traction — Read It Straight</div>
+        <h2>The world keeps showing up. For free.</h2>
+
+        <div class="stats-row">
+          <div class="stat-card">
+            <div class="stat-number">~1.6K</div>
+            <div class="stat-label">Organic installs / mo</div>
+            <div class="stat-sub">$0 CAC · no marketing engine</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-number">206</div>
+            <div class="stat-label">Countries</div>
+            <div class="stat-sub">449 device languages</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-number">17.6K</div>
+            <div class="stat-label">Registered</div>
+            <div class="stat-sub">32% of installs</div>
+          </div>
+        </div>
+
+        <div class="big-statement"><span class="accent">No ads. No growth team. They just keep coming.</span></div>
+
+        <div class="highlight-box">
+          <p>We turned paid acquisition <strong>off</strong> — and demand didn't stop. That's pull, not spend.</p>
+        </div>
+        <p class="source">GA4 BigQuery export · online-tribes-pl-4b26b · Nov 2025 – Jun 2026.</p>
+      </div>
+
+      <!-- SLIDE — NORTH STAR -->
+      <div class="slide">
+        <div class="slide-label">The 12-Month Plan</div>
+        <h2>One question. Answered with data.</h2>
+
+        <div class="big-statement">Do two strangers AI introduced<br /><span class="accent">still show up for each other 90 days later?</span></div>
+
+        <div class="three-col">
+          <div class="card">
+            <h4>5 minutes</h4>
+            <p>Goal in → tribe proposed.</p>
+          </div>
+          <div class="card">
+            <h4>&lt; 48 hours</h4>
+            <p>First real interaction — message, reply, or join.</p>
+          </div>
+          <div class="card">
+            <h4>90 days</h4>
+            <p>Still connected. The North Star.</p>
+          </div>
+        </div>
+
+        <div class="highlight-box">
+          <p>Chat, live exchanges, posts, stories — <strong>many ways to stay, with more shipping every month.</strong> Not DAU, not installs: if AI-built circles stay alive at 90 days, everything else follows.</p>
+        </div>
+      </div>
+
+      <!-- SLIDE 9 — CONNECTION INFRASTRUCTURE -->
+      <div class="slide">
+        <div class="slide-label">The Vision</div>
+        <h2>Not an app.<br />Infrastructure for human connection.</h2>
+
+        <div class="big-statement"><span class="accent">Many tools. One connection graph.</span></div>
+
+        <div class="three-col">
+          <div class="card">
+            <h4>The apps</h4>
+            <p>iOS &amp; Android. Find your people, in any language.</p>
+          </div>
+          <div class="card">
+            <h4>Messenger events — live</h4>
+            <p>A WhatsApp &amp; Telegram bot that finds the right people and spins up mini real-world meetups.</p>
+            <p style="margin-top:8px"><a href="https://viva-tribe.omnia-inteligance.com/">viva-tribe.omnia-inteligance.com</a></p>
+          </div>
+          <div class="card">
+            <h4>Strangers to Friends — next</h4>
+            <p>Live Zoom rooms that sort strangers into the right small group, in real time.</p>
+          </div>
+        </div>
+
+        <div class="highlight-box">
+          <p>Every tool feeds <strong>one graph of who belongs with whom</strong> — and every interaction makes the next match better.</p>
+        </div>
+      </div>
+
+      <!-- SLIDE 10 — MARKET -->
+      <div class="slide">
+        <div class="slide-label">Market</div>
+        <h2>Everyone owns a corner.<br />Ours is empty.</h2>
+
+        <div class="matrix-cap">← Single language &nbsp;·&nbsp; Borderless →</div>
+        <div class="matrix">
+          <div class="cell">
+            <div class="q">Small-group · single language</div>
+            <p class="players">Discord, Geneva, Mighty, Skool</p>
+          </div>
+          <div class="cell win">
+            <div class="q">Small-group · borderless · AI-matched</div>
+            <p class="players">Online Tribes — alone here.</p>
+          </div>
+          <div class="cell">
+            <div class="q">Broadcast · single language</div>
+            <p class="players">Reddit, Meetup</p>
+          </div>
+          <div class="cell">
+            <div class="q">Broadcast · borderless</div>
+            <p class="players">Meta, TikTok, X</p>
+          </div>
+        </div>
+
+        <ul>
+          <li><strong>Discord</strong> — $15B · <strong>Geneva</strong> — acquired by Bumble · <strong>Mighty</strong> — $100M+ raised · <strong>Skool</strong> — profitable</li>
+        </ul>
+
+        <div class="highlight-box">
+          <p>Others optimize for attention, or for communities. <strong>No one optimizes for the relationship itself</strong> — the tools that help people truly understand each other and bond, across any border.</p>
+        </div>
+      </div>
+
+      <!-- SLIDE 11 — BUSINESS MODEL -->
+      <div class="slide">
+        <div class="slide-label">Business Model</div>
+        <h2>Built. Tested. Waiting on purpose.</h2>
+
+        <div class="three-col">
+          <div class="card">
+            <h4>Premium</h4>
+            <p>Built. Priced post-proof.</p>
+          </div>
+          <div class="card">
+            <h4>Ads</h4>
+            <p>Built. Kept minimal.</p>
+          </div>
+          <div class="card">
+            <h4>Owner payouts</h4>
+            <p>Owners earn from member care. Platform takes 15–20%. The flywheel.</p>
+          </div>
+        </div>
+
+        <div class="honest-box">
+          <div class="label">Why wait</div>
+          <p>Selling into 8% retention buys churn. <strong>A circle you don't leave is a circle you'll pay for.</strong> Fix the room first.</p>
+        </div>
+      </div>
+
+      <!-- SLIDE 12 — TEAM -->
+      <div class="slide">
+        <div class="slide-label">Team</div>
+        <h2>A senior international team — built and shipped on $0.</h2>
+
+        <div class="team-grid">
+          <div class="team-card">
+            <div class="name">Franek Jablonski</div>
+            <div class="role">Co-founder · CTO</div>
+            <p class="bio">Visa, gov delivery. Product + AI agents.</p>
+          </div>
+          <div class="team-card">
+            <div class="name">Marianna Jablonska</div>
+            <div class="role">Co-founder · Growth &amp; UX</div>
+            <p class="bio">CS + marketing. Activation + retention.</p>
+          </div>
+          <div class="team-card">
+            <div class="name">Dominik Mazurkiewicz</div>
+            <div class="role">Senior Mobile Engineer</div>
+            <p class="bio">Flutter. Core app.</p>
+          </div>
+          <div class="team-card">
+            <div class="name">Anis Boulaid</div>
+            <div class="role">DevOps Lead</div>
+            <p class="bio">18+ yrs cloud. Infra.</p>
+          </div>
+          <div class="team-card">
+            <div class="name">Shahwaiz Tahir</div>
+            <div class="role">QA Engineer</div>
+            <p class="bio">Selenium, Appium. Release stability.</p>
+          </div>
+          <div class="team-card">
+            <div class="name">Fadli</div>
+            <div class="role">Performance Marketing</div>
+            <p class="bio">Paid growth, media buying.</p>
+          </div>
+        </div>
+
+        <div class="highlight-box">
+          <p>We've already <strong>assembled, led and scaled a distributed senior team</strong> — we know how to grow one.</p>
+        </div>
+      </div>
+
+      <!-- SLIDE 13 — THE ASK -->
+      <div class="slide">
+        <div class="slide-label">The Ask</div>
+        <h2>$500K. 12 months. The category's only open question — answered.</h2>
+
+        <p class="lead">Three jobs for the money: fix activation, <strong>guarantee real humans</strong>, and fuel the demand we already get for free.</p>
+
+        <div style="margin: 16px 0">
+          <div class="funds-bar">
+            <div style="width: 40%; background: var(--primary)">40% Marketing &amp; Community</div>
+            <div style="width: 30%; background: var(--primary-light)">30% Product &amp; Trust</div>
+            <div style="width: 20%; background: #8b5cf6">20% Founders</div>
+            <div style="width: 10%; background: var(--primary-dark)">10% Infra</div>
+          </div>
+        </div>
+
+        <div class="two-col">
+          <div class="card">
+            <h4>Marketing &amp; Community — $200K</h4>
+            <ul>
+              <li>Goal-targeted acquisition into seeded tribes</li>
+              <li>Community Lead + owner program</li>
+            </ul>
+          </div>
+          <div class="card">
+            <h4>Product &amp; Trust — $150K</h4>
+            <ul>
+              <li>AI pods + facilitation — the activation fix</li>
+              <li><strong>Verified, real humans</strong> — identity checks + AI that filters bots &amp; scammers</li>
+            </ul>
+          </div>
+          <div class="card">
+            <h4>Founders — $100K</h4>
+            <ul>
+              <li>Survival salary, 12 months</li>
+            </ul>
+          </div>
+          <div class="card">
+            <h4>Infra &amp; Legal — $50K</h4>
+            <ul>
+              <li>Firebase, AI inference, GDPR</li>
+            </ul>
+          </div>
+        </div>
+
+        <div class="highlight-box">
+          <p><strong>Month 12:</strong> a base of verified, active members, cohorts moving toward 26%, a measured 90-day connection rate — and the playbook for the seed.</p>
+        </div>
+      </div>
+
+      <!-- SLIDE 14 — CLOSE -->
+      <div class="slide back-cover">
+        <h2>Who's around you decides who you become.<br />We're making that a choice — for everyone, in every language.</h2>
+        <p class="subtitle">$500K pre-seed · 12 months · the category no one else is building.</p>
+
+        <div class="qr-container">
+          <div class="qr-code">
+            <img src="qe_code.svg" alt="QR Code — Download Online Tribes" />
+          </div>
+          <div class="contact-info">
+            <p><strong>Download:</strong> iOS &amp; Android</p>
+            <p><strong>Web:</strong> <a href="https://online-tribes.com">online-tribes.com</a></p>
+          </div>
+        </div>
+
+        <div class="contact-email"><a href="mailto:franek@online-tribes.com">franek@online-tribes.com</a></div>
+        <p style="color: var(--text-muted); font-size: 14px; margin: 4px 0"><a href="mailto:marianna@online-tribes.com">marianna@online-tribes.com</a></p>
+        <p style="color: var(--text-muted); font-size: 13px; margin-top: 24px">
+          <strong>Online Tribes</strong> — choose your circle on purpose.
+        </p>
+      </div>
+    </div>
+  </body>
+</html>
