@@ -46,7 +46,10 @@ class WelcomeScreen extends StatefulWidget {
   const WelcomeScreen({
     super.key,
     this.userName = 'Léa',
-    this.inviteCode = 'VIVA-26-LK7',
+    // Empty by default — the real code is resolved from the user doc / sign-in
+    // response. A non-empty placeholder here once leaked to the bot as a deep
+    // link the bot rejected ("invite link looks invalid").
+    this.inviteCode = '',
   });
 
   final String userName;

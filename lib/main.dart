@@ -56,7 +56,10 @@ class VivaTribeApp extends StatelessWidget {
             return _fadeThrough(
               settings,
               (_) => WelcomeScreen(
-                inviteCode: args is String ? args : 'VIVA-26-LK7',
+                // No real code here means WelcomeScreen resolves it from the
+                // signed-in user's doc; '' never matches the invite pattern, so
+                // the Telegram button stays hidden until a real code loads.
+                inviteCode: args is String ? args : '',
               ),
             );
           case '/members':

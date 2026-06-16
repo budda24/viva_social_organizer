@@ -87,10 +87,9 @@ class _LinkedInCallbackScreenState extends State<LinkedInCallbackScreen> {
       await FirebaseAuth.instance.signInWithCustomToken(token);
 
       if (!mounted) return;
-      Navigator.of(context).pushReplacementNamed(
-        '/welcome',
-        arguments: 'VIVA-26-LK7',
-      );
+      // No arguments — WelcomeScreen resolves the real Telegram binding code
+      // from the signed-in user's doc. Never hand it a placeholder code.
+      Navigator.of(context).pushReplacementNamed('/welcome');
     } on FirebaseFunctionsException catch (e) {
       if (!mounted) return;
       setState(() => _error = 'Sign-in failed: ${e.message ?? e.code}');

@@ -11,6 +11,18 @@ const TELEGRAM_BOT_TOKEN = defineSecret("TELEGRAM_BOT_TOKEN");
 
 const INVITE_CODE_PATTERN = /^VIVA-[A-Z0-9]{4}-[A-Z0-9]{2}$/;
 
+// Some Telegram clients strip punctuation from deep-link `?start=` payloads, so
+// a code that leaves the site as VIVA-BTK9-JO can arrive as VIVABTK9JO and fail
+// the strict pattern. Reconstruct the canonical VIVA-XXXX-XX form from a
+// hyphen-stripped variant; codes are stored (and looked up) with hyphens.
+function normalizeInviteCode(raw: string): string {
+  const up = raw.trim().toUpperCase();
+  if (INVITE_CODE_PATTERN.test(up)) return up;
+  const compact = up.replace(/[^A-Z0-9]/g, "");
+  const m = compact.match(/^VIVA([A-Z0-9]{4})([A-Z0-9]{2})$/);
+  return m ? `VIVA-${m[1]}-${m[2]}` : up;
+}
+
 // Telegram re-fires `/start` on a single deep-link open (the t.me handoff plus
 // the in-chat Start button), so one navigation from the Viva site lands as two
 // `/start` updates a moment apart — different update_ids, so the botInbox
@@ -214,7 +226,7 @@ export const telegramWebhook = onRequest(
         chatId,
         uid: "unbound",
         body:
-          'To connect this chat, sign in with LinkedIn at viva-social-organizer.web.app/in, then tap "Join on Telegram".',
+          'To connect this chat, sign in with LinkedIn at viva-tribe.omnia-inteligance.com/in, then tap "Join on Telegram".',
       });
       res.status(200).send("ok");
       return;
@@ -228,7 +240,7 @@ export const telegramWebhook = onRequest(
         chatId,
         uid: "unbound",
         body:
-          "I don't recognise this chat yet. Sign in with LinkedIn at viva-social-organizer.web.app/in, " +
+          "I don't recognise this chat yet. Sign in with LinkedIn at viva-tribe.omnia-inteligance.com/in, " +
           'then tap "Join on Telegram" to (re)connect this chat.',
       });
       res.status(200).send("ok");
@@ -323,7 +335,11 @@ async function handleStart(args: {
 }): Promise<StartResult> {
   const { db, code, chatId, username, displayName, lang } = args;
 
-  if (!INVITE_CODE_PATTERN.test(code)) {
+  const normalized = normalizeInviteCode(code);
+  if (!INVITE_CODE_PATTERN.test(normalized)) {
+    console.warn(
+      `[telegramWebhook] bad-code-format raw="${code}" normalized="${normalized}"`
+    );
     return {
       ok: false,
       reason: "bad-code-format",
@@ -331,7 +347,7 @@ async function handleStart(args: {
     };
   }
 
-  const codeRef = db.doc(`inviteCodes/${code}`);
+  const codeRef = db.doc(`inviteCodes/${normalized}`);
   return db.runTransaction(async (tx) => {
     const codeSnap = await tx.get(codeRef);
     if (!codeSnap.exists) {
