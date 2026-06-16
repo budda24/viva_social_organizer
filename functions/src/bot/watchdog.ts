@@ -22,8 +22,6 @@ import { getFirestore, FieldValue, Timestamp } from "firebase-admin/firestore";
  */
 
 const TELEGRAM_BOT_TOKEN = defineSecret("TELEGRAM_BOT_TOKEN");
-// Slack incoming-webhook URL for #viva-social-menage. Leave unset to skip Slack.
-const SLACK_WEBHOOK_URL = defineSecret("SLACK_WEBHOOK_URL");
 // Franek's personal chat id with the bot (DM the bot once, then read it — see
 // bot/src/whois.ts). Leave empty to skip the Telegram alert.
 const WATCHDOG_TELEGRAM_CHAT_ID = defineString("WATCHDOG_TELEGRAM_CHAT_ID", { default: "" });
@@ -77,28 +75,8 @@ async function sendTelegram(text: string): Promise<void> {
   }
 }
 
-async function sendSlack(text: string): Promise<void> {
-  let url: string;
-  try {
-    url = SLACK_WEBHOOK_URL.value();
-  } catch {
-    return; // secret not provisioned
-  }
-  if (!url) return;
-  try {
-    const res = await fetch(url, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ text }),
-    });
-    if (!res.ok) console.error(`[watchdog] slack alert ${res.status}: ${await res.text()}`);
-  } catch (e) {
-    console.error("[watchdog] slack alert failed:", e);
-  }
-}
-
 async function alert(text: string): Promise<void> {
-  await Promise.all([sendTelegram(text), sendSlack(text)]);
+  await sendTelegram(text);
 }
 
 export const brainWatchdog = onSchedule(
@@ -106,7 +84,7 @@ export const brainWatchdog = onSchedule(
     schedule: "every 1 minutes",
     region: "europe-central2",
     timeZone: "Europe/Paris",
-    secrets: [TELEGRAM_BOT_TOKEN, SLACK_WEBHOOK_URL],
+    secrets: [TELEGRAM_BOT_TOKEN],
   },
   async () => {
     const db = getFirestore();

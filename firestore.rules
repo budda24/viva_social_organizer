@@ -38,8 +38,8 @@ service cloud.firestore {
     }
 
     // Public aggregate stats (e.g. landing-page member count). World-readable
-    // so the signed-out "/" landing can show a live "N / 100 tribers" pill
-    // without exposing the sign-in-gated users directory. Written only by the
+    // so the signed-out "/" landing can show a live "N tribers" pill without
+    // exposing the sign-in-gated users directory. Written only by the
     // onUserWrite trigger (admin SDK, bypasses rules).
     match /public/{doc} {
       allow read: if true;

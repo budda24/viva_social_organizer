@@ -14,7 +14,7 @@ export { linkedinSignIn } from "./users/linkedin";
 // To re-enable the paid CF, uncomment and redeploy. also `firebase functions:delete enrichUser`d.
 // export { enrichUser } from "./users/enrich";
 export { reclaimStaleInbox } from "./bot/reclaimInbox";
-// Pages Franek (Telegram DM + Slack) when the laptop brain goes down — stale
+// Pages Franek (Telegram DM) when the laptop brain goes down — stale
 // heartbeat (laptop/bot offline) or a fresh beat reporting ollamaOk === false.
 export { brainWatchdog } from "./bot/watchdog";
 
