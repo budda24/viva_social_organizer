@@ -1,11 +1,11 @@
 {
-    "name": "viva_social_organizer",
-    "short_name": "viva_social_organizer",
+    "name": "Tribu — AI concierge for events",
+    "short_name": "Tribu",
     "start_url": ".",
     "display": "browser",
     "background_color": "#0175C2",
     "theme_color": "#0175C2",
-    "description": "VivaTech Social Organizer member portal",
+    "description": "Tribu — the AI concierge that helps people find their tribe and connect at any event.",
     "orientation": "portrait-primary",
     "prefer_related_applications": false,
     "icons": [

@@ -1304,13 +1304,13 @@ class _Pricing extends StatelessWidget {
 
   static const _tiers = [
     (
-      name: 'Starter',
-      size: 'Up to 250 guests',
-      price: 'from €1,000',
-      period: '/ event',
+      name: 'Pay as you go',
+      size: 'Up to 500 guests',
+      price: 'from €4',
+      period: '/ connected guest',
       features: [
+        'No flat fee — pay only for connections',
         'WhatsApp, Telegram & web app',
-        'Your event’s branding',
         'Smart intros, buddies & meetups',
         'Community space — tribes that live on',
       ],
@@ -1322,7 +1322,8 @@ class _Pricing extends StatelessWidget {
       price: 'from €3,500',
       period: '/ event',
       features: [
-        'Everything in Starter',
+        'Everything in Pay as you go',
+        'Flat per-event price',
         'Engagement analytics',
         'Priority support',
       ],
@@ -1378,16 +1379,16 @@ class _Pricing extends StatelessWidget {
         const _SectionLabel('PRICING'),
         const SizedBox(height: 8),
         Text(
-          'Pay per event. Scale as you grow.',
+          'Pay as you go, or per event. Scale as you grow.',
           style: serif(fontSize: isCompact ? 28 : 40, weight: FontWeight.w500),
         ),
         const SizedBox(height: 10),
         ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 640),
           child: Text(
-            'Transparent pricing that tracks your room — not a per-seat meter. '
-            'Every tier is fully branded; add a native white-label app whenever '
-            'you want one.',
+            'Transparent pricing — pay only for guests who connect, or a flat '
+            'fee per event. Every tier is fully branded; add a native '
+            'white-label app whenever you want one.',
             style: TextStyle(
               fontSize: isCompact ? 14 : 15.5,
               height: 1.5,
@@ -1412,9 +1413,9 @@ class _Pricing extends StatelessWidget {
         ),
         const SizedBox(height: 20),
         Text(
-          'Prefer to pay for outcomes? From €4 per guest who actually '
-          'connects (pilots from €1.50). Series, communities & agencies: annual '
-          'licenses from €15k/yr.',
+          'Running a pilot or a one-off? Pay-as-you-go pilots from €1.50 per '
+          'connected guest. Series, communities & agencies: annual licenses '
+          'from €15k/yr.',
           style: const TextStyle(
             fontSize: 13,
             height: 1.5,
@@ -1510,9 +1511,12 @@ class _PriceCard extends StatelessWidget {
               ),
               if (period.isNotEmpty) ...[
                 const SizedBox(width: 6),
-                Text(
-                  period,
-                  style: const TextStyle(fontSize: 13, color: AppColors.inkMuted),
+                Flexible(
+                  child: Text(
+                    period,
+                    style:
+                        const TextStyle(fontSize: 13, color: AppColors.inkMuted),
+                  ),
                 ),
               ],
             ],
