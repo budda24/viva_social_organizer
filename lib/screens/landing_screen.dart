@@ -1412,8 +1412,8 @@ class _Pricing extends StatelessWidget {
         ),
         const SizedBox(height: 20),
         Text(
-          'Prefer to pay for outcomes? From €2.50 per guest who actually '
-          'connects (pilots from €1). Series, communities & agencies: annual '
+          'Prefer to pay for outcomes? From €4 per guest who actually '
+          'connects (pilots from €1.50). Series, communities & agencies: annual '
           'licenses from €15k/yr.',
           style: const TextStyle(
             fontSize: 13,
