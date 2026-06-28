@@ -11,6 +11,7 @@ class BotDemoCard extends StatelessWidget {
     required this.title,
     required this.turns,
     required this.caption,
+    this.botName = 'VivaTribuBot',
   });
 
   /// Small label above the title (e.g. `01 · FIND PEOPLE`).
@@ -24,6 +25,10 @@ class BotDemoCard extends StatelessWidget {
 
   /// One-line caption shown beneath the phone (explains what the demo proves).
   final String caption;
+
+  /// Name shown in the mock chat header. Defaults to the live VivaTech bot, but
+  /// the white-label landing passes a neutral product name instead.
+  final String botName;
 
   @override
   Widget build(BuildContext context) {
@@ -59,7 +64,7 @@ class BotDemoCard extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              const _BotHeader(),
+              _BotHeader(botName: botName),
               const SizedBox(height: 12),
               for (final t in turns) ...[
                 _Bubble(turn: t),
@@ -97,7 +102,9 @@ class DemoTurn {
 }
 
 class _BotHeader extends StatelessWidget {
-  const _BotHeader();
+  const _BotHeader({required this.botName});
+
+  final String botName;
 
   @override
   Widget build(BuildContext context) {
@@ -114,19 +121,19 @@ class _BotHeader extends StatelessWidget {
           child: const Icon(Icons.bolt, size: 14, color: AppColors.accent),
         ),
         const SizedBox(width: 10),
-        const Column(
+        Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              'VivaTribuBot',
-              style: TextStyle(
+              botName,
+              style: const TextStyle(
                 fontSize: 13,
                 fontWeight: FontWeight.w600,
                 color: AppColors.ink,
               ),
             ),
-            SizedBox(height: 1),
-            Row(
+            const SizedBox(height: 1),
+            const Row(
               children: [
                 Icon(Icons.circle, size: 7, color: AppColors.statusGreen),
                 SizedBox(width: 5),

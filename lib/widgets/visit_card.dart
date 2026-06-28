@@ -30,7 +30,7 @@ class VisitCard extends StatelessWidget {
             tagline: 'Hosting Viva Tribe at VivaTech 2026',
             links: [
               _Link(icon: Icons.mail_outline, label: 'franek@online-tribes.com', url: 'franek@online-tribes.com', email: true),
-              _Link(icon: Icons.link, label: 'LinkedIn', url: 'https://www.linkedin.com/in/franek-jablonski/'),
+              _Link(icon: Icons.link, label: 'LinkedIn', url: 'https://www.linkedin.com/in/franekjablonski/'),
               _Link(icon: Icons.code, label: 'GitHub', url: 'https://github.com/budda24'),
               _Link(icon: Icons.phone_iphone, label: 'OnlineTribes app', url: 'https://onlinetribes.qrplanet.com/j2dfu1'),
               _Link(icon: Icons.slideshow_outlined, label: 'Pitches', route: '/pitches'),

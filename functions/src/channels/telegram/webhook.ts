@@ -3,6 +3,7 @@ import { defineSecret } from "firebase-functions/params";
 import { getFirestore, FieldValue, Timestamp } from "firebase-admin/firestore";
 import { resolveUserByChannel } from "../identity";
 import { checkAndIncrement } from "../rateLimit";
+import { DEMO_START_PAYLOAD, demoWelcome } from "../demo";
 
 const TELEGRAM_WEBHOOK_SECRET = defineSecret("TELEGRAM_WEBHOOK_SECRET");
 // Needed to answer callback queries (stop the button spinner) and clear the
@@ -10,6 +11,11 @@ const TELEGRAM_WEBHOOK_SECRET = defineSecret("TELEGRAM_WEBHOOK_SECRET");
 const TELEGRAM_BOT_TOKEN = defineSecret("TELEGRAM_BOT_TOKEN");
 
 const INVITE_CODE_PATTERN = /^VIVA-[A-Z0-9]{4}-[A-Z0-9]{2}$/;
+
+// Self-serve demo (`t.me/<bot>?start=demo`): no pre-created user — `handleDemoStart`
+// mints an ephemeral `isDemo` account, binds this chat, and drops the prospect
+// into the seeded sandbox. DEMO_START_PAYLOAD / demoWelcome are shared with the
+// WhatsApp path in ../demo.
 
 // Some Telegram clients strip punctuation from deep-link `?start=` payloads, so
 // a code that leaves the site as VIVA-BTK9-JO can arrive as VIVABTK9JO and fail
@@ -177,24 +183,40 @@ export const telegramWebhook = onRequest(
         // connected, now type help" note — so reply with the same welcome menu
         // a first-time bind gets.
         if (await claimStartGreet(db, chatId)) {
-          const prefLang = (await db.doc(`users/${bound.uid}`).get()).data()
-            ?.preferredLanguage as string | undefined;
+          const u = (await db.doc(`users/${bound.uid}`).get()).data();
+          const prefLang = u?.preferredLanguage as string | undefined;
           const effLang: "en" | "fr" =
             prefLang === "fr" || prefLang === "en" ? prefLang : lang;
-          await queueReply(db, {
-            chatId,
-            uid: bound.uid,
-            body: welcomeMenu(effLang, bound.displayName ?? "there"),
-          });
+          const greetingName = bound.displayName ?? "there";
+          // A returning demo prospect re-taps the link / Start button: greet
+          // them with the demo welcome (sandbox framing + book-a-call), not the
+          // standard member menu.
+          const body =
+            u?.isDemo === true
+              ? demoWelcome(effLang, greetingName)
+              : welcomeMenu(effLang, greetingName);
+          await queueReply(db, { chatId, uid: bound.uid, body });
         }
         res.status(200).send("ok");
         return;
       }
     }
 
-    // Path 1: /start <inviteCode> — binding flow.
+    // Path 1: /start <inviteCode> — binding flow (or the self-serve demo).
     if (text.startsWith("/start ")) {
-      const code = text.slice("/start ".length).trim().toUpperCase();
+      const payload = text.slice("/start ".length).trim();
+
+      // `/start demo` — the marketing-site live-demo link. No invite code, no
+      // pre-created user: mint an ephemeral demo account, bind this chat, and
+      // greet with the sandbox welcome.
+      if (payload.toLowerCase() === DEMO_START_PAYLOAD) {
+        await handleDemoStart({ db, chatId, username, displayName, lang });
+        await markStartGreeted(db, chatId);
+        res.status(200).send("ok");
+        return;
+      }
+
+      const code = payload.toUpperCase();
       const handled = await handleStart({
         db,
         code,
@@ -316,6 +338,55 @@ function welcomeMenu(lang: "en" | "fr", greetingName: string): string {
         "• language — switch English / Français\n" +
         "• help — see this menu again\n" +
         "• stop — opt out";
+}
+
+/**
+ * Self-serve demo onboarding. Mints (or refreshes) an ephemeral `isDemo` user
+ * keyed to the Telegram chat, binds the chat, marks onboarding complete so the
+ * brain skips the goal/energy questions, and queues the demo welcome. Idempotent
+ * — re-opening the demo link reuses the same `demo-tg-<chatId>` account.
+ *
+ * Demo accounts are `status: approved` so the brain treats them as members, but
+ * they are filtered OUT of every other user's directory in brain.ts (isDemo), so
+ * a prospect's throwaway account never surfaces as a real match.
+ */
+async function handleDemoStart(args: {
+  db: FirebaseFirestore.Firestore;
+  chatId: number;
+  username?: string;
+  displayName?: string;
+  lang: "en" | "fr";
+}): Promise<void> {
+  const { db, chatId, username, displayName, lang } = args;
+  const uid = `demo-tg-${chatId}`;
+  const userRef = db.doc(`users/${uid}`);
+
+  // Honour a language they picked in-bot on an earlier demo open.
+  const existing = (await userRef.get()).data();
+  const existingLang = existing?.preferredLanguage as string | undefined;
+  const effLang: "en" | "fr" =
+    existingLang === "fr" || existingLang === "en" ? existingLang : lang;
+  const greetingName = displayName ?? "there";
+
+  await userRef.set(
+    {
+      displayName: displayName ?? "Guest",
+      status: "approved",
+      role: "member",
+      isDemo: true,
+      telegramChatId: chatId,
+      telegramUsername: username ?? null,
+      telegramDisplayName: displayName ?? null,
+      telegramBoundAt: FieldValue.serverTimestamp(),
+      preferredLanguage: effLang,
+      onboarding: { step: "complete", completedAt: FieldValue.serverTimestamp() },
+      createdAt: existing?.createdAt ?? FieldValue.serverTimestamp(),
+      updatedAt: FieldValue.serverTimestamp(),
+    },
+    { merge: true }
+  );
+
+  await queueReply(db, { chatId, uid, body: demoWelcome(effLang, greetingName) });
 }
 
 interface StartResult {

@@ -439,6 +439,17 @@ interface ExecuteResult {
   createdEventId?: string;
 }
 
+// Where the self-serve demo funnel ends: after a prospect feels the product
+// (e.g. spins up their first sub-event) we point them at this Calendly to book
+// a real call. Only ever appended for `isDemo` accounts.
+const DEMO_CALENDLY_URL = "https://calendly.com/franek-1/founding-ot";
+
+function demoBookCallLine(lang: Lang): string {
+  return lang === "fr"
+    ? `\n\n🎉 Et voilà le principe ! Prêt(e) pour la vraie chose ? Réserve un appel avec Franek → ${DEMO_CALENDLY_URL}`
+    : `\n\n🎉 That's the gist! Ready for the real thing? Book a call with Franek → ${DEMO_CALENDLY_URL}`;
+}
+
 async function executeCreateEvent(
   deps: ExecuteDeps,
   action: CreateEventAction
@@ -473,6 +484,22 @@ async function executeCreateEvent(
     at: FieldValue.serverTimestamp(),
   });
 
+  // Demo prospects run in a SEALED sandbox: persist the event (so it shows back
+  // in their own "what's on") but never broadcast it — real members and other
+  // demo prospects must not receive a stranger's throwaway invite — and don't
+  // spin up a real Online Tribes group. Close on the book-a-call CTA: this is
+  // the "you felt it, now talk to us" moment.
+  if (userData.isDemo === true) {
+    const live =
+      deps.lang === "fr"
+        ? `✓ « ${action.title} » est en ligne ! Dans la vraie version, j'inviterais aussitôt chaque participant pertinent et j'ouvrirais un groupe.`
+        : `✓ "${action.title}" is live! In the real thing I'd instantly invite every attendee who's a fit and open a group chat.`;
+    return {
+      reply: live + demoBookCallLine(deps.lang),
+      createdEventId: eventRef.id,
+    };
+  }
+
   // Broadcast to every other approved member, each in their own language.
   const members = await db
     .collection("users")
@@ -485,6 +512,10 @@ async function executeCreateEvent(
     members.docs.map(async (doc) => {
       if (doc.id === uid) return;
       const data = doc.data();
+      // Never deliver a real event to a demo prospect (throwaway sandbox account
+      // that happens to have a live Telegram binding). Silently skip — they're
+      // not a "member we couldn't reach", so don't count them as unreachable.
+      if (data.isDemo === true) return;
       const route = pickChannel(data);
       if (!route) {
         skipped += 1;

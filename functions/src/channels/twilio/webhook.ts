@@ -4,6 +4,7 @@ import { getFirestore, FieldValue } from "firebase-admin/firestore";
 import twilio from "twilio";
 import { resolveUserByChannel } from "../identity";
 import { checkAndIncrement } from "../rateLimit";
+import { demoWelcome } from "../demo";
 
 const TWILIO_AUTH_TOKEN = defineSecret("TWILIO_AUTH_TOKEN");
 
@@ -71,7 +72,12 @@ export const twilioWebhook = onRequest(
     const phone = from.replace(/^whatsapp:/, "");
     const user = await resolveUserByChannel("twilio", phone);
     if (!user) {
-      console.warn(`[twilioWebhook] no approved user for phone ${phone}; ignoring`);
+      // Self-serve WhatsApp demo: an unbound number reaching the Twilio sandbox
+      // is a prospect (real members bind their phone on the site, so they'd
+      // resolve above). Auto-onboard them into the same sealed demo sandbox as
+      // Telegram's `/start demo` and greet — then stop. Their next message
+      // resolves to this demo account and flows through the brain normally.
+      await handleDemoStartWhatsApp(phone, profileName);
       ackEmpty(res);
       return;
     }
@@ -104,3 +110,50 @@ export const twilioWebhook = onRequest(
     ackEmpty(res);
   }
 );
+
+/**
+ * WhatsApp equivalent of the Telegram `/start demo` flow. Mints (or refreshes)
+ * an ephemeral `isDemo` user keyed to the phone, binds it via whatsappPhoneE164
+ * so the brain can route replies back, marks onboarding complete, and queues the
+ * demo welcome through the Twilio outbox. Idempotent. WhatsApp gives no locale,
+ * so the welcome defaults to English (the prospect can switch with `language`).
+ */
+async function handleDemoStartWhatsApp(
+  phone: string,
+  profileName: string
+): Promise<void> {
+  const db = getFirestore();
+  const uid = `demo-wa-${phone.replace(/[^0-9]/g, "")}`;
+  const userRef = db.doc(`users/${uid}`);
+  const existing = (await userRef.get()).data();
+  const name = profileName || (existing?.displayName as string | undefined) || "Guest";
+  const lang = (existing?.preferredLanguage as string | undefined) === "fr" ? "fr" : "en";
+
+  await userRef.set(
+    {
+      displayName: name,
+      status: "approved",
+      role: "member",
+      isDemo: true,
+      whatsappPhoneE164: phone,
+      consentWhatsappMessages: true,
+      preferredLanguage: lang,
+      onboarding: { step: "complete", completedAt: FieldValue.serverTimestamp() },
+      createdAt: existing?.createdAt ?? FieldValue.serverTimestamp(),
+      updatedAt: FieldValue.serverTimestamp(),
+    },
+    { merge: true }
+  );
+
+  await db.collection("whatsappOutbox").add({
+    recipientType: "individual",
+    recipientUid: uid,
+    recipientPhone: phone,
+    type: "demo_welcome",
+    provider: "twilio",
+    body: demoWelcome(lang, name),
+    status: "queued",
+    attempts: 0,
+    createdAt: FieldValue.serverTimestamp(),
+  });
+}

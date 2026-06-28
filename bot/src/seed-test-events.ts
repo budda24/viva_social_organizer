@@ -32,7 +32,13 @@ interface TestEvent {
   id: string;
   title: string;
   kind: EventKind;
-  startAtISO: string; // Paris time, +02:00 in June
+  // Days from "tomorrow" (0 = tomorrow) + Paris wall-clock time. Resolved to an
+  // absolute timestamp at seed time so the demo always shows UPCOMING events —
+  // hardcoded calendar dates go stale and vanish from "what's on" the moment
+  // they pass. The original VivaTech-week spread (Wed→Sat) is preserved as
+  // offsets 0..3.
+  dayOffset: number;
+  time: string; // "HH:MM" Paris local
   hostUid: string;
   hostName: string;
   addressNeighborhood?: string;
@@ -41,13 +47,15 @@ interface TestEvent {
   description?: string;
 }
 
-// VivaTech Paris 2026: Wed 17 — Sat 20 Jun. Mirrors the in-code sampleEvents.
+// A 4-day spread starting tomorrow — mirrors the original VivaTech-week shape
+// (a morning-heavy first day, demos + drinks mid-week, an after-party to close).
 const events: TestEvent[] = [
   {
     id: "evt-breakfast-wed",
     title: "Breakfast meet",
     kind: "breakfast",
-    startAtISO: "2026-06-17T08:30:00+02:00",
+    dayOffset: 0,
+    time: "08:30",
     hostUid: "u-lea",
     hostName: "Léa Mercier",
     addressNeighborhood: "11e",
@@ -59,7 +67,8 @@ const events: TestEvent[] = [
     id: "evt-run-thu",
     title: "Morning run · Seine",
     kind: "walk",
-    startAtISO: "2026-06-18T07:00:00+02:00",
+    dayOffset: 1,
+    time: "07:00",
     hostUid: "u-marcus",
     hostName: "Marcus Højlund",
     addressNeighborhood: "7e",
@@ -71,7 +80,8 @@ const events: TestEvent[] = [
     id: "evt-demos-thu",
     title: "Lightning demos",
     kind: "side-event",
-    startAtISO: "2026-06-18T18:30:00+02:00",
+    dayOffset: 1,
+    time: "18:30",
     hostUid: "u-tom",
     hostName: "Tom Adebayo",
     addressNeighborhood: "1er",
@@ -83,7 +93,8 @@ const events: TestEvent[] = [
     id: "evt-wine-thu",
     title: "Wine + agents",
     kind: "drinks",
-    startAtISO: "2026-06-18T21:00:00+02:00",
+    dayOffset: 1,
+    time: "21:00",
     hostUid: "u-yuki",
     hostName: "Yuki Tanaka",
     addressNeighborhood: "3e",
@@ -93,21 +104,23 @@ const events: TestEvent[] = [
   },
   {
     id: "evt-walk-lecun-fri",
-    title: "Walk to LeCun keynote",
+    title: "Walk to the keynote",
     kind: "walk",
-    startAtISO: "2026-06-19T13:30:00+02:00",
+    dayOffset: 2,
+    time: "13:30",
     hostUid: "u-yuki",
     hostName: "Yuki Tanaka",
     addressNeighborhood: "15e",
     addressFull: "Porte de Versailles, Hall 1 entrance",
     capacity: 20,
-    description: "Walking together to the LeCun talk — meet at the entrance.",
+    description: "Walking together to the big talk — meet at the entrance.",
   },
   {
     id: "evt-founders-coffee-fri",
     title: "Founders coffee",
     kind: "coffee",
-    startAtISO: "2026-06-19T09:30:00+02:00",
+    dayOffset: 2,
+    time: "09:30",
     hostUid: "u-lea",
     hostName: "Léa Mercier",
     addressNeighborhood: "9e",
@@ -119,7 +132,8 @@ const events: TestEvent[] = [
     id: "evt-lunch-marais-fri",
     title: "Late lunch · Le Marais",
     kind: "lunch",
-    startAtISO: "2026-06-19T14:30:00+02:00",
+    dayOffset: 2,
+    time: "14:30",
     hostUid: "u-marcus",
     hostName: "Marcus Højlund",
     addressNeighborhood: "4e",
@@ -131,7 +145,8 @@ const events: TestEvent[] = [
     id: "evt-afterparty-sat",
     title: "After-party warm-up",
     kind: "drinks",
-    startAtISO: "2026-06-20T19:30:00+02:00",
+    dayOffset: 3,
+    time: "19:30",
     hostUid: "u-tom",
     hostName: "Tom Adebayo",
     addressNeighborhood: "11e",
@@ -140,6 +155,34 @@ const events: TestEvent[] = [
     description: "Pre-game before the official closing party.",
   },
 ];
+
+// Resolve a (dayOffset, "HH:MM") pair into an absolute instant at the given
+// Paris wall-clock time. Day 0 is tomorrow. The Paris UTC offset is read from
+// the target day via Intl, so this is correct across the CET/CEST switch.
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+function parisOffset(at: Date): string {
+  const tz =
+    new Intl.DateTimeFormat("en-GB", {
+      timeZone: "Europe/Paris",
+      timeZoneName: "longOffset",
+    })
+      .formatToParts(at)
+      .find((p) => p.type === "timeZoneName")?.value ?? "GMT+01:00";
+  // "GMT+02:00" → "+02:00"; bare "GMT" (rare) → UTC.
+  return tz.replace("GMT", "") || "+00:00";
+}
+
+function resolveStartAt(dayOffset: number, time: string): Date {
+  const at = new Date(Date.now() + (1 + dayOffset) * DAY_MS);
+  const ymd = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Europe/Paris",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(at); // YYYY-MM-DD in Paris
+  return new Date(`${ymd}T${time}:00${parisOffset(at)}`);
+}
 
 initializeApp({ credential: applicationDefault() });
 const db = getFirestore();
@@ -153,6 +196,7 @@ if (wipe) {
 
 for (const e of events) {
   const ref = db.doc(`events/${e.id}`);
+  const startAt = resolveStartAt(e.dayOffset, e.time);
   await ref.set(
     {
       title: e.title,
@@ -160,7 +204,7 @@ for (const e of events) {
       description: e.description ?? "",
       hostUid: e.hostUid,
       hostName: e.hostName,
-      startAt: Timestamp.fromDate(new Date(e.startAtISO)),
+      startAt: Timestamp.fromDate(startAt),
       addressNeighborhood: e.addressNeighborhood ?? "",
       addressFull: e.addressFull ?? "",
       capacity: e.capacity ?? null,
@@ -183,8 +227,10 @@ for (const e of events) {
     },
     { merge: true }
   );
-  console.log(`[seed] events/${e.id} → ${e.title} · ${e.startAtISO} · host=${e.hostName}`);
+  console.log(
+    `[seed] events/${e.id} → ${e.title} · ${startAt.toISOString()} · host=${e.hostName}`
+  );
 }
 
-console.log(`[seed] done · ${events.length} events scheduled for VivaTech week`);
+console.log(`[seed] done · ${events.length} upcoming events (starting tomorrow)`);
 process.exit(0);

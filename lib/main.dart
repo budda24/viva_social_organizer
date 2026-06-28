@@ -8,6 +8,7 @@ import 'screens/landing_screen.dart';
 import 'screens/linkedin_callback_screen.dart';
 import 'screens/members_screen.dart';
 import 'screens/pitches_screen.dart';
+import 'screens/try_demo_screen.dart';
 import 'screens/welcome_screen.dart';
 import 'theme/app_theme.dart';
 import 'utils/ref_tracking.dart';
@@ -31,7 +32,7 @@ class VivaTribeApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Viva Tribe · VivaTech 2026',
+      title: 'Tribu — AI concierge for events',
       debugShowCheckedModeBanner: false,
       theme: buildAppTheme(),
       // onGenerateRoute instead of `routes:` so nested paths like
@@ -62,6 +63,8 @@ class VivaTribeApp extends StatelessWidget {
                 inviteCode: args is String ? args : '',
               ),
             );
+          case '/try':
+            return _fadeThrough(settings, (_) => const TryDemoScreen());
           case '/members':
             return _fadeThrough(settings, (_) => const MembersScreen());
           case '/pitches':

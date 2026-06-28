@@ -403,13 +403,24 @@ export async function loadMemberDirectory(db: Firestore): Promise<DirectoryMembe
     // throughput fixtures and must never surface as real match suggestions
     // (e.g. "LoadTest 10" being offered for "find me a climate VC").
     .filter((d) => d.data().isLoadTest !== true)
+    // Demo prospects (self-serve sandbox accounts, `isDemo`) are approved so the
+    // brain serves THEM, but they must never surface in anyone else's matches —
+    // a stranger's throwaway demo account is not a real person to meet.
+    .filter((d) => d.data().isDemo !== true)
     // Only members who've actually JOINED the bot (have a Telegram or WhatsApp
     // binding) can be pinged/intro'd — recommending an un-reachable web-only
     // signup is a dead end (Shah, Jun 9: "user hasn't joined the bot, how does it
     // recommend as a buddy?"). Filter them out of every match + who-is-here.
+    // Exception: seeded demo personas (`isTestData`) have no binding by design —
+    // they're the sample attendees the sandbox matches against — so admit them.
+    // Any intro/invite aimed at them safely no-ops (no chat to deliver to).
     .filter((d) => {
       const u = d.data();
-      return u.telegramChatId != null || u.whatsappPhoneE164 != null;
+      return (
+        u.telegramChatId != null ||
+        u.whatsappPhoneE164 != null ||
+        u.isTestData === true
+      );
     })
     .map((d) => {
       const u = d.data();
