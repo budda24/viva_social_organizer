@@ -57,11 +57,19 @@ interface TgChat {
   id: number;
   type: string;
 }
+interface TgInlineButton {
+  text: string;
+  callback_data?: string;
+  url?: string;
+}
 interface TgMessage {
   message_id: number;
   from?: TgUser;
   chat: TgChat;
   text?: string;
+  // Present on messages that carry inline tap-buttons. We read it on a tap so a
+  // multi-option keyboard can drop just the tapped button and keep the rest.
+  reply_markup?: { inline_keyboard?: TgInlineButton[][] };
   voice?: { file_id: string; duration?: number; mime_type?: string };
   // Non-text, non-voice attachments — we don't process these, but we detect them
   // so the bot can reply gracefully instead of going silent.
@@ -668,11 +676,25 @@ async function handleCallbackQuery(
   // Brain is up and we're queueing this tap — show "typing…" while it works.
   sendTypingAction(chatId);
 
-  // Remove the keyboard from the tapped message so it reads as "chosen" and a
-  // double-tap can't enqueue the action twice.
+  // Update the tapped message's keyboard so the tap "sticks" without wiping the
+  // other options. A yes/no confirmation is a terminal decision — clear the
+  // whole keyboard (answering one way rules out the other). Any other keyboard
+  // (a browse list of "Intro: <name>" buttons, the menu quick-actions, a buddy
+  // Connect list) is multi-choice: drop ONLY the tapped button so its siblings
+  // stay tappable — the QA "the button disappears after one selection" fix —
+  // while still preventing a double-tap from re-firing the same action.
   if (cq.message?.message_id) {
-    await editMessageReplyMarkup(chatId, cq.message.message_id).catch((e) =>
-      console.warn(`[telegramWebhook] editMessageReplyMarkup failed: ${e}`)
+    const isTerminal = data === "yes" || data === "no";
+    let nextKeyboard: TgInlineButton[][] | undefined;
+    const current = cq.message.reply_markup?.inline_keyboard;
+    if (!isTerminal && current) {
+      nextKeyboard = current
+        .map((row) => row.filter((b) => b.callback_data !== data))
+        .filter((row) => row.length > 0);
+      if (nextKeyboard.length === 0) nextKeyboard = undefined; // nothing left → clear
+    }
+    await editMessageReplyMarkup(chatId, cq.message.message_id, nextKeyboard).catch(
+      (e) => console.warn(`[telegramWebhook] editMessageReplyMarkup failed: ${e}`)
     );
   }
 
@@ -723,17 +745,26 @@ async function answerCallbackQuery(callbackQueryId: string): Promise<void> {
   }
 }
 
-// Clear the inline keyboard from a message (omitting reply_markup removes it).
+// Replace a message's inline keyboard. Passing `keyboard` sets it (used to drop
+// just the tapped button and keep its siblings); omitting it removes the
+// keyboard entirely (used for terminal yes/no confirmations).
 async function editMessageReplyMarkup(
   chatId: number,
-  messageId: number
+  messageId: number,
+  keyboard?: TgInlineButton[][]
 ): Promise<void> {
   const res = await fetch(
     `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN.value()}/editMessageReplyMarkup`,
     {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ chat_id: chatId, message_id: messageId }),
+      body: JSON.stringify({
+        chat_id: chatId,
+        message_id: messageId,
+        ...(keyboard && keyboard.length > 0
+          ? { reply_markup: { inline_keyboard: keyboard } }
+          : {}),
+      }),
     }
   );
   if (!res.ok) {

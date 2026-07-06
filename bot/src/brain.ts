@@ -422,35 +422,60 @@ export async function loadMemberDirectory(db: Firestore): Promise<DirectoryMembe
         u.isTestData === true
       );
     })
-    .map((d) => {
-      const u = d.data();
-      const enr = (u.enrichment ?? {}) as Record<string, unknown>;
-      return {
-        uid: d.id,
-        name: String(u.displayName ?? ""),
-        goal: String(u.goal ?? ""),
-        energy: String(u.energy ?? ""),
-        enrichedBio: String(enr.bio ?? ""),
-        enrichedTopics: Array.isArray(enr.topics) ? (enr.topics as string[]) : [],
-        enrichedCompany: String(enr.company ?? ""),
-        enrichedRecentActivity: String(enr.recentActivity ?? ""),
-        enrichedMatchSignals: String(enr.matchSignals ?? ""),
-        bio: String(u.bio ?? ""),
-        topics: Array.isArray(u.topics) ? (u.topics as string[]) : [],
-        lookingFor: String(u.lookingFor ?? ""),
-        city: String(u.city ?? ""),
-        // Future-only — filter expired here so the cached block stays stable
-        // (Claude double-checks against the current-time line for the 30s
-        // staleness window).
-        freeUntilMs:
-          u.freeUntil &&
-          typeof u.freeUntil.toMillis === "function" &&
-          u.freeUntil.toMillis() > Date.now()
-            ? (u.freeUntil.toMillis() as number)
-            : undefined,
-      };
-    })
+    .map(docToDirectoryMember)
     .sort((a, b) => a.uid.localeCompare(b.uid)); // stable order → byte-identical block → cacheable
+}
+
+// Map a `users/*` doc to the matcher's view of a member. Shared by the shared
+// directory load and the per-demo peer merge below so both stay in sync.
+function docToDirectoryMember(d: QueryDocumentSnapshot): DirectoryMember {
+  const u = d.data();
+  const enr = (u.enrichment ?? {}) as Record<string, unknown>;
+  return {
+    uid: d.id,
+    name: String(u.displayName ?? ""),
+    goal: String(u.goal ?? ""),
+    energy: String(u.energy ?? ""),
+    enrichedBio: String(enr.bio ?? ""),
+    enrichedTopics: Array.isArray(enr.topics) ? (enr.topics as string[]) : [],
+    enrichedCompany: String(enr.company ?? ""),
+    enrichedRecentActivity: String(enr.recentActivity ?? ""),
+    enrichedMatchSignals: String(enr.matchSignals ?? ""),
+    bio: String(u.bio ?? ""),
+    topics: Array.isArray(u.topics) ? (u.topics as string[]) : [],
+    lookingFor: String(u.lookingFor ?? ""),
+    city: String(u.city ?? ""),
+    // Future-only — filter expired here so the cached block stays stable
+    // (Claude double-checks against the current-time line for the 30s
+    // staleness window).
+    freeUntilMs:
+      u.freeUntil &&
+      typeof u.freeUntil.toMillis === "function" &&
+      u.freeUntil.toMillis() > Date.now()
+        ? (u.freeUntil.toMillis() as number)
+        : undefined,
+  };
+}
+
+// Other demo testers, for a demo requester only. The shared directory
+// deliberately drops `isDemo` accounts (a stranger's throwaway demo must never
+// surface in a real member's matches), but inside the sealed sandbox two people
+// trying the SAME demo should be able to find + connect to each other (QA #8).
+// So we load the other demo prospects on demand and merge them into just this
+// requester's view. Their intros are simulated (see executeIntroBuddy), so no
+// real contact is ever swapped between two demo strangers.
+export async function loadDemoPeers(
+  db: Firestore,
+  selfUid: string
+): Promise<DirectoryMember[]> {
+  const snap = await db
+    .collection("users")
+    .where("status", "==", "approved")
+    .where("isDemo", "==", true)
+    .get();
+  return snap.docs
+    .filter((d) => d.id !== selfUid && d.data().isLoadTest !== true)
+    .map(docToDirectoryMember);
 }
 
 // In-process directory cache. The directory is identical for every user and
@@ -3069,12 +3094,32 @@ export async function processMessage(deps: ProcessMessageDeps): Promise<void> {
     }
   }
 
-  const [history, members, upcomingEvents] = await Promise.all([
+  const [history, sharedMembers, upcomingEvents] = await Promise.all([
     loadConversation(db, uid),
     getMemberDirectory(db),
     getUpcomingEvents(db),
   ]);
   const enrichment = (userData.enrichment ?? {}) as Record<string, unknown>;
+
+  // A demo prospect also sees the other demo testers in their sandbox (QA #8);
+  // real members never do. Merge deduped and make sure the peers have
+  // embeddings so buddy/topic ranking can place them.
+  let members = sharedMembers;
+  if ((userData as Record<string, unknown>).isDemo === true) {
+    const peers = await loadDemoPeers(db, uid);
+    if (peers.length > 0) {
+      const known = new Set(sharedMembers.map((m) => m.uid));
+      const extra = peers.filter((p) => !known.has(p.uid));
+      if (extra.length > 0) {
+        await ensureMemberEmbeddings(extra).catch((e) =>
+          console.warn(`[bot] demo peer embed failed: ${e}`)
+        );
+        members = [...sharedMembers, ...extra].sort((a, b) =>
+          a.uid.localeCompare(b.uid)
+        );
+      }
+    }
+  }
 
   // ── Buddy match (deterministic, headline feature) ──────────────────────────
   // `find me a buddy` short-circuits here — it never reaches the local model,
@@ -3346,13 +3391,16 @@ export async function processMessage(deps: ProcessMessageDeps): Promise<void> {
     { role: "assistant", content: reply, at: Timestamp.now() },
   ]);
 
-  // Telegram tap-buttons. Three mutually-exclusive cases:
+  // Telegram tap-buttons. Mutually-exclusive cases:
   //  • an action proposal → Yes/No confirm (ephemeral; the tapped token is still
   //    "yes"/"no" so the pendingAction fast-path resolves it unchanged), dropping
   //    the now-redundant "Reply yes" text from the Telegram body;
-  //  • a `find me <topic>` browse → a "🤝 Intro: <Name>" button per suggestion so
-  //    the intro is one tap, not a typed `intro me to <name>` (persistent);
-  //  • the fallback menu → a few quick-action buttons (persistent).
+  //  • the fallback menu → a few quick-action buttons (persistent);
+  //  • ANY reply that names members from the directory → a "🤝 Intro: <Name>"
+  //    button per person so connecting is one tap. This covers a `find me
+  //    <topic>` browse, "browse people", "who is here", and free-text people
+  //    suggestions — the connect option used to be missing on everything except
+  //    the deterministic find-me paths (QA #9/#10).
   // WhatsApp (Twilio) ignores buttons and keeps the typed CTA in the body.
   let buttons: OutboxButton[] | undefined;
   let telegramBody: string | undefined;
@@ -3372,14 +3420,17 @@ export async function processMessage(deps: ProcessMessageDeps): Promise<void> {
     ];
     telegramBody = stripYesCta(reply);
     ephemeralKeyboard = true;
-  } else if (isTopicBrowse(body)) {
-    const introButtons = buildIntroButtons(reply, relevantMembers, lang, introTopicFrom(body));
-    if (introButtons.length > 0) {
-      buttons = introButtons;
-      telegramBody = stripIntroNudge(reply); // WhatsApp body keeps the typed nudge
-    }
   } else if (isMenuReply(reply, lang)) {
     buttons = menuButtons(lang);
+  } else {
+    const topic = isTopicBrowse(body) ? introTopicFrom(body) : "";
+    const introButtons = buildIntroButtons(reply, relevantMembers, lang, topic);
+    if (introButtons.length > 0) {
+      buttons = introButtons;
+      // A topic browse closes with a typed "intro me to <name>" nudge the
+      // buttons replace on Telegram; other people-listing replies have none.
+      if (isTopicBrowse(body)) telegramBody = stripIntroNudge(reply);
+    }
   }
 
   await writeOutbox(db, {

@@ -27,10 +27,12 @@ class LandingScreen extends StatelessWidget {
   /// Sales contact for demo requests.
   static const String contactEmail = 'franek@online-tribes.com';
 
-  /// Smart link to the live community app (routes to the App Store / Play Store
-  /// / web). The persistent "tribes" platform shown in the Beyond-the-event
-  /// section is this app, white-labelled per organizer.
-  static const String appUrl = 'https://onlinetribes.qrplanet.com/j2dfu1';
+  /// Live community app / product site. The persistent "tribes" platform shown
+  /// in the Beyond-the-event section is this app, white-labelled per organizer.
+  /// (Was a `qrplanet.com` smart link that had been misconfigured to 302 back to
+  /// this very landing page — clicking "See the live app" bounced users to the
+  /// homepage. Points straight at the product site now.)
+  static const String appUrl = 'https://online-tribes.com';
 
   /// Calendly booking page for the "Book a demo call" / founding-partner call.
   static const String calendlyUrl =
@@ -173,37 +175,58 @@ class _PitchTopBar extends StatelessWidget {
       children: [
         const _BrandMark(),
         const SizedBox(width: 11),
-        Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(
-              LandingScreen.product,
-              style: const TextStyle(
-                fontWeight: FontWeight.w700,
-                fontSize: 16,
-                color: AppColors.ink,
-                letterSpacing: -0.2,
+        Flexible(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                LandingScreen.product,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  fontWeight: FontWeight.w700,
+                  fontSize: 16,
+                  color: AppColors.ink,
+                  letterSpacing: -0.2,
+                ),
               ),
-            ),
-            const Text(
-              'AI concierge for any event',
-              style: TextStyle(fontSize: 11, color: AppColors.inkMuted),
-            ),
-          ],
+              // The subtitle is dropped on mobile so the brand, the "Have an
+              // invite?" link and the demo CTA all fit the header on one row.
+              if (!isCompact)
+                const Text(
+                  'AI concierge for any event',
+                  style: TextStyle(fontSize: 11, color: AppColors.inkMuted),
+                  overflow: TextOverflow.ellipsis,
+                ),
+            ],
+          ),
         ),
       ],
     );
 
     final invite = _InviteLink();
     final demo =
-        _DemoButton(label: 'Try the demo', onTap: () => _tryDemo(context));
+        _DemoButton(label: 'Try the live demo', onTap: () => _tryDemo(context));
 
     if (isCompact) {
       return Padding(
         padding: const EdgeInsets.fromLTRB(20, 18, 20, 4),
         child: Row(
-          children: [Flexible(child: brand), const Spacer(), demo],
+          children: [
+            Flexible(child: brand),
+            const SizedBox(width: 8),
+            // "Have an invite?" was desktop-only before — QA flagged it missing
+            // on the mobile header, so it rides here too now (dense CTA + no
+            // brand subtitle keep all three on one row without overflow).
+            invite,
+            const SizedBox(width: 4),
+            _DemoButton(
+              label: 'Try the live demo',
+              onTap: () => _tryDemo(context),
+              dense: true,
+            ),
+          ],
         ),
       );
     }
@@ -259,17 +282,26 @@ class _InviteLink extends StatelessWidget {
       style: TextButton.styleFrom(
         foregroundColor: AppColors.inkMuted,
         textStyle: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500),
+        // Shrink the tap target so the link fits alongside the brand + demo CTA
+        // on a narrow mobile header without forcing a horizontal overflow.
+        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 8),
+        minimumSize: Size.zero,
+        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
       ),
-      child: const Text('Have an invite?'),
+      child: const Text('Have an invite?', maxLines: 1),
     );
   }
 }
 
 class _DemoButton extends StatelessWidget {
-  const _DemoButton({required this.label, required this.onTap});
+  const _DemoButton({required this.label, required this.onTap, this.dense = false});
 
   final String label;
   final VoidCallback onTap;
+
+  /// Tighter padding + slightly smaller text so the CTA, the "Have an invite?"
+  /// link and the brand all fit the narrow mobile header on one row.
+  final bool dense;
 
   @override
   Widget build(BuildContext context) {
@@ -280,13 +312,14 @@ class _DemoButton extends StatelessWidget {
         borderRadius: BorderRadius.circular(999),
         onTap: onTap,
         child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 11),
+          padding: EdgeInsets.symmetric(horizontal: dense ? 13 : 18, vertical: 11),
           child: Text(
             label,
-            style: const TextStyle(
+            maxLines: 1,
+            style: TextStyle(
               color: AppColors.accentInk,
               fontWeight: FontWeight.w600,
-              fontSize: 14,
+              fontSize: dense ? 13 : 14,
             ),
           ),
         ),
@@ -313,18 +346,23 @@ class _EyebrowPill extends StatelessWidget {
           borderRadius: BorderRadius.circular(999),
           border: Border.all(color: AppColors.surfaceTintBorder),
         ),
+        // Cap the pill to the available width so the eyebrow text wraps inside
+        // it instead of running past the screen edge on mobile (QA: "text below
+        // the header touches the edge of the screen").
         child: const Row(
           mainAxisSize: MainAxisSize.min,
           children: [
             Icon(Icons.auto_awesome, size: 13, color: AppColors.accent),
             SizedBox(width: 8),
-            Text(
-              'WHITE-LABEL  ·  LIVES IN WHATSAPP & TELEGRAM',
-              style: TextStyle(
-                fontSize: 11,
-                letterSpacing: 1.3,
-                color: AppColors.ink,
-                fontWeight: FontWeight.w600,
+            Flexible(
+              child: Text(
+                'WHITE-LABEL  ·  LIVES IN WHATSAPP & TELEGRAM',
+                style: TextStyle(
+                  fontSize: 11,
+                  letterSpacing: 1.3,
+                  color: AppColors.ink,
+                  fontWeight: FontWeight.w600,
+                ),
               ),
             ),
           ],
@@ -620,6 +658,55 @@ class _BotDemos extends StatelessWidget {
 //  Meet them on every surface — chat / web / your own branded app
 // ─────────────────────────────────────────────────────────────────────────
 
+/// Lays [cards] out in rows of [columns], each row wrapped in an
+/// [IntrinsicHeight] with stretched children so every card in a row shares the
+/// tallest card's height. (A plain [Wrap] left each card at its own natural
+/// height, so a box with more copy stood taller than its neighbours.) Short
+/// trailing rows are padded with empty cells so their card widths still line up
+/// with the full rows above.
+class _EqualHeightGrid extends StatelessWidget {
+  const _EqualHeightGrid({
+    required this.columns,
+    required this.gap,
+    required this.cards,
+  });
+
+  final int columns;
+  final double gap;
+  final List<Widget> cards;
+
+  @override
+  Widget build(BuildContext context) {
+    final rows = <Widget>[];
+    for (var i = 0; i < cards.length; i += columns) {
+      final end = (i + columns) < cards.length ? i + columns : cards.length;
+      final rowChildren = <Widget>[];
+      for (var j = i; j < end; j++) {
+        if (j > i) rowChildren.add(SizedBox(width: gap));
+        rowChildren.add(Expanded(child: cards[j]));
+      }
+      // Pad a short trailing row so its cards keep the same width as full rows.
+      for (var k = end; k < i + columns; k++) {
+        rowChildren.add(SizedBox(width: gap));
+        rowChildren.add(const Expanded(child: SizedBox.shrink()));
+      }
+      if (rows.isNotEmpty) rows.add(SizedBox(height: gap));
+      rows.add(
+        IntrinsicHeight(
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: rowChildren,
+          ),
+        ),
+      );
+    }
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: rows,
+    );
+  }
+}
+
 class _Surfaces extends StatelessWidget {
   const _Surfaces();
 
@@ -697,20 +784,10 @@ class _Surfaces extends StatelessWidget {
           ),
         ),
         const SizedBox(height: 28),
-        LayoutBuilder(
-          builder: (context, constraints) {
-            const gap = 16.0;
-            final cardWidth =
-                (constraints.maxWidth - gap * (columns - 1)) / columns;
-            return Wrap(
-              spacing: gap,
-              runSpacing: gap,
-              children: [
-                for (final c in cards) SizedBox(width: cardWidth, child: c),
-              ],
-            );
-          },
-        ),
+        // Equal-height rows: a plain Wrap left each card at its natural height,
+        // so cards with more copy were taller than their neighbours (QA: "the
+        // boxes size should [be the] same").
+        _EqualHeightGrid(columns: columns, gap: 16, cards: cards),
       ],
     );
   }
@@ -884,20 +961,10 @@ class _AfterEvent extends StatelessWidget {
         const SizedBox(height: 28),
         const _AppShowcase(),
         const SizedBox(height: 28),
-        LayoutBuilder(
-          builder: (context, constraints) {
-            const gap = 16.0;
-            final cardWidth =
-                (constraints.maxWidth - gap * (columns - 1)) / columns;
-            return Wrap(
-              spacing: gap,
-              runSpacing: gap,
-              children: [
-                for (final c in cards) SizedBox(width: cardWidth, child: c),
-              ],
-            );
-          },
-        ),
+        // Equal-height rows: a plain Wrap left each card at its natural height,
+        // so cards with more copy were taller than their neighbours (QA: "the
+        // boxes size should [be the] same").
+        _EqualHeightGrid(columns: columns, gap: 16, cards: cards),
       ],
     );
   }
@@ -1215,20 +1282,10 @@ class _WhyOrganizers extends StatelessWidget {
           style: serif(fontSize: isCompact ? 28 : 40, weight: FontWeight.w500),
         ),
         const SizedBox(height: 28),
-        LayoutBuilder(
-          builder: (context, constraints) {
-            const gap = 16.0;
-            final cardWidth =
-                (constraints.maxWidth - gap * (columns - 1)) / columns;
-            return Wrap(
-              spacing: gap,
-              runSpacing: gap,
-              children: [
-                for (final c in cards) SizedBox(width: cardWidth, child: c),
-              ],
-            );
-          },
-        ),
+        // Equal-height rows: a plain Wrap left each card at its natural height,
+        // so cards with more copy were taller than their neighbours (QA: "the
+        // boxes size should [be the] same").
+        _EqualHeightGrid(columns: columns, gap: 16, cards: cards),
       ],
     );
   }
@@ -1397,20 +1454,10 @@ class _Pricing extends StatelessWidget {
           ),
         ),
         const SizedBox(height: 28),
-        LayoutBuilder(
-          builder: (context, constraints) {
-            const gap = 16.0;
-            final cardWidth =
-                (constraints.maxWidth - gap * (columns - 1)) / columns;
-            return Wrap(
-              spacing: gap,
-              runSpacing: gap,
-              children: [
-                for (final c in cards) SizedBox(width: cardWidth, child: c),
-              ],
-            );
-          },
-        ),
+        // Equal-height rows: a plain Wrap left each card at its natural height,
+        // so cards with more copy were taller than their neighbours (QA: "the
+        // boxes size should [be the] same").
+        _EqualHeightGrid(columns: columns, gap: 16, cards: cards),
         const SizedBox(height: 20),
         Text(
           'Running a pilot or a one-off? Pay-as-you-go pilots from €1.50 per '
@@ -1731,7 +1778,12 @@ class _PitchFooter extends StatelessWidget {
     final right = MouseRegion(
       cursor: SystemMouseCursors.click,
       child: GestureDetector(
-        onTap: () => emailAction(context, LandingScreen.contactEmail),
+        // Copy the address (with a toast) rather than launch a `mailto:`. On the
+        // web a same-tab mailto with no OS mail handler (typical on desktop)
+        // navigates the tab away and blanks the single-page app — the "clickable
+        // email" QA flagged. Copying is reliable on every browser and never
+        // leaves the page.
+        onTap: () => copyEmail(context, LandingScreen.contactEmail),
         child: const Text(
           LandingScreen.contactEmail,
           style: TextStyle(

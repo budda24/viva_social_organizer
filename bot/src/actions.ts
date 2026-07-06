@@ -829,13 +829,29 @@ async function executeIntroBuddy(
       reply: `I can't reach that member right now — but there's plenty more of the circle to meet. Reply \`find me a buddy\` and I'll line up someone else.`,
     };
   }
+  const targetName = (targetData.displayName as string | undefined) ?? "there";
+
+  // Demo prospects run in a SEALED sandbox. The sample attendees they match
+  // against (seeded personas) have no chat binding by design, and we never
+  // actually ping another demo tester. Either way there's no real person to
+  // deliver an intro to — so simulate a successful connect rather than
+  // dead-ending on "hasn't joined the bot yet" (QA #12/#16), and let a demo
+  // tester complete the connect flow against anyone in their sandbox (QA #8).
+  // Close on the book-a-call nudge, like the other demo actions.
+  if (userData.isDemo === true) {
+    const line =
+      deps.lang === "fr"
+        ? `✓ J'ai demandé à ${targetName} de se connecter ! Dans la vraie version, la personne reçoit ta demande et, dès qu'elle accepte, j'échange vos contacts pour que vous puissiez vous rencontrer.`
+        : `✓ Asked ${targetName} to connect! In the real thing they get your request and, the moment they accept, I swap your contacts so you two can meet.`;
+    return { reply: line + demoBookCallLine(deps.lang) };
+  }
+
   const route = pickChannel(targetData);
   if (!route) {
     return {
-      reply: `${targetData.displayName ?? "They"} hasn't joined the bot yet, so I can't ping them just yet — but there's plenty more to meet. Reply \`find me a buddy\` for another match.`,
+      reply: `${targetName} hasn't joined the bot yet, so I can't ping them just yet — but there's plenty more to meet. Reply \`find me a buddy\` for another match.`,
     };
   }
-  const targetName = (targetData.displayName as string | undefined) ?? "there";
 
   // Record the pending request.
   const reqRef = db.collection("introRequests").doc();
